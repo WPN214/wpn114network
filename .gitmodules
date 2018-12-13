@@ -1,0 +1,3 @@
+[submodule "external/qzeroconf"]
+	path = external/qzeroconf
+	url = https://github.com/jbagg/QtZeroConf.git
