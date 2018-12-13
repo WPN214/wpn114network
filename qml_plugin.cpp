@@ -14,15 +14,15 @@ void qml_plugin::registerTypes(const char *uri)
 {
     Q_UNUSED    ( uri );
 
-    qmlRegisterUncreatableType<Type, 1>         ( "WPN114", 1, 0, "Type", "Coucou" );
-    qmlRegisterUncreatableType<Access, 1>       ( "WPN114", 1, 0, "Access", "Coucou" );
-    qmlRegisterUncreatableType<Clipmode, 1>     ( "WPN114", 1, 0, "Clipmode", "Coucou" );
-    qmlRegisterUncreatableType<WPNNodeTree, 1>  ( "WPN114", 1, 0, "NodeTree", "Coucou" );
-    qmlRegisterType<OSCHandler, 1>              ( "WPN114", 1, 0, "OSCHandler" );
-    qmlRegisterType<WPNNode, 1>                 ( "WPN114", 1, 0, "Node" );
-    qmlRegisterType<WPNFileNode, 1>             ( "WPN114", 1, 0, "FileNode" );
-    qmlRegisterType<WPNFolderNode, 1>           ( "WPN114", 1, 0, "FolderNode" );
-    qmlRegisterType<WPNFolderMirror, 1>         ( "WPN114", 1, 0, "FolderMirror" );
-    qmlRegisterType<WPNQueryServer, 1>          ( "WPN114", 1, 0, "OSCQueryServer" );
-    qmlRegisterType<WPNQueryClient, 1>          ( "WPN114", 1, 0, "OSCQueryClient" );
+    qmlRegisterUncreatableType<Type, 1>         ( "WPN114.Network", 1, 0, "Type", "Coucou" );
+    qmlRegisterUncreatableType<Access, 1>       ( "WPN114.Network", 1, 0, "Access", "Coucou" );
+    qmlRegisterUncreatableType<Clipmode, 1>     ( "WPN114.Network", 1, 0, "Clipmode", "Coucou" );
+    qmlRegisterUncreatableType<WPNNodeTree, 1>  ( "WPN114.Network", 1, 0, "NodeTree", "Coucou" );
+    qmlRegisterType<OSCHandler, 1>              ( "WPN114.Network", 1, 0, "OSCHandler" );
+    qmlRegisterType<WPNNode, 1>                 ( "WPN114.Network", 1, 0, "Node" );
+    qmlRegisterType<WPNFileNode, 1>             ( "WPN114.Network", 1, 0, "FileNode" );
+    qmlRegisterType<WPNFolderNode, 1>           ( "WPN114.Network", 1, 0, "FolderNode" );
+    qmlRegisterType<WPNFolderMirror, 1>         ( "WPN114.Network", 1, 0, "FolderMirror" );
+    qmlRegisterType<WPNQueryServer, 1>          ( "WPN114.Network", 1, 0, "OSCQueryServer" );
+    qmlRegisterType<WPNQueryClient, 1>          ( "WPN114.Network", 1, 0, "OSCQueryClient" );
 }
