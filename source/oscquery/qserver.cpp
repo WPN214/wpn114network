@@ -1,7 +1,7 @@
-#include "server.hpp"
+#include "qserver.hpp"
 #include <QJsonObject>
 #include <QJsonDocument>
-#include "../http/http.hpp"
+#include <source/http/http.hpp>
 #include "file.hpp"
 
 WPNQueryServer::WPNQueryServer() : WPNDevice (),
