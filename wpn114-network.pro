@@ -5,7 +5,9 @@ QT += quick
 
 localmod: DESTDIR = $$QML_MODULE_DESTDIR/WPN114/Network
 else: DESTDIR = $$[QT_INSTALL_QML]/WPN114/Network
+
 QMLDIR_FILES += $$PWD/qml/qmldir
+QMLDIR_FILES += $$PWD/qml/network.qmltypes
 
 for(FILE,QMLDIR_FILES) {
     QMAKE_POST_LINK += $$quote(cp $${FILE} $${DESTDIR}$$escape_expand(\n\t))
