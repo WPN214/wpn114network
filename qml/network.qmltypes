@@ -41,7 +41,7 @@ Module {
         }
     }
     Component {
-        name: "OSCHandler"
+        name: "OSCDevice"
         prototype: "QObject"
         exports: ["WPN114.Network/OSCDevice 1.0"]
         exportMetaObjectRevisions: [1]
