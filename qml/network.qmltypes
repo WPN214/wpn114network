@@ -43,7 +43,7 @@ Module {
     Component {
         name: "OSCHandler"
         prototype: "QObject"
-        exports: ["WPN114.Network/OSCHandler 1.0"]
+        exports: ["WPN114.Network/OSCDevice 1.0"]
         exportMetaObjectRevisions: [1]
         Property { name: "localPort"; type: "int" }
         Property { name: "remotePort"; type: "int" }
