@@ -44,14 +44,14 @@ void WPNWebSocketServer::onTcpReadyRead()
      {
          QByteArray data = sender->readAll ( );
 
-         if ( data.contains("Sec-WebSocket-Key"))
+         if (data.contains("Sec-WebSocket-Key"))
          {
              onHandshakeRequest(sender, data);
              // once handshake has been done, no need to keep it
              QObject::disconnect(sender, SIGNAL(readyRead()), this, SLOT(onTcpReadyRead()));
          }
 
-         else if ( data.contains("HTTP") )
+         else if (data.contains("HTTP"))
              emit httpRequestReceived(sender, data);
      }
 }
@@ -61,9 +61,9 @@ void WPNWebSocketServer::onHandshakeRequest(QTcpSocket *sender, QByteArray data)
     // parse the key
     auto contents = data.split('\n');
 
-    for ( const auto& line : contents )
+    for (const auto& line : contents)
     {
-        if ( line.startsWith ( "Sec-WebSocket-Key" ))
+        if (line.startsWith("Sec-WebSocket-Key"))
         {
             auto key_contents = line.split(' ');
             QString key = key_contents[ 1 ];

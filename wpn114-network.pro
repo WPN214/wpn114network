@@ -3,16 +3,16 @@ TEMPLATE = lib
 CONFIG += c++11 dll
 QT += quick
 
-localmod: DESTDIR = $$QML_MODULE_DESTDIR/WPN114/Network
-else: DESTDIR = $$[QT_INSTALL_QML]/WPN114/Network
-
 QMLDIR_FILES += $$PWD/qml/qmldir
 QMLDIR_FILES += $$PWD/qml/network.qmltypes
 OTHER_FILES = $$QMLDIR_FILES
 
-for(FILE,QMLDIR_FILES) {
-    QMAKE_POST_LINK += $$quote(cp $${FILE} $${DESTDIR}$$escape_expand(\n\t))
-}
+qmlplugin.path = $$[QT_INSTALL_QML]/WPN114/Network
+qmlplugin.files = $$QMLDIR_FILES
+target.path = $$[QT_INSTALL_QML]/WPN114/Network
+
+INSTALLS += target
+INSTALLS += qmlplugin
 
 DEFINES += QZEROCONF_STATIC
 include (external/qzeroconf/qtzeroconf.pri)
