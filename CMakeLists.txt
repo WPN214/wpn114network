@@ -10,16 +10,8 @@ find_package(Qt5 REQUIRED COMPONENTS Quick Core Qml)
 
 set(WPN114NETWORK_QML_SOURCES
     qml_plugin.cpp
-    source/http/http.cpp
-    source/osc/osc.cpp
-    source/oscquery/client.cpp
-    source/oscquery/device.cpp
-    source/oscquery/file.cpp
-    source/oscquery/folder.cpp
-    source/oscquery/node.cpp
-    source/oscquery/qserver.cpp
-    source/oscquery/tree.cpp
-    source/websocket/websocket.cpp
+    source/network.hpp
+    source/network.cpp
     )
 
 add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
