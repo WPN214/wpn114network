@@ -261,6 +261,19 @@ public:
 
 Q_DECLARE_METATYPE(Connection)
 
+#include <avahi-client/client.h>
+#include <avahi-client/publish.h>
+
+#include <avahi-common/alternative.h>
+#include <avahi-common/simple-watch.h>
+#include <avahi-common/malloc.h>
+#include <avahi-common/error.h>
+#include <avahi-common/timeval.h>
+
+using avahi_client = AvahiClient;
+using avahi_simple_poll = AvahiSimplePoll;
+using avahi_entry_group = AvahiEntryGroup;
+
 //-------------------------------------------------------------------------------------------------
 class Server : public QObject, public QQmlParserStatus
 //-------------------------------------------------------------------------------------------------
@@ -272,6 +285,36 @@ class Server : public QObject, public QQmlParserStatus
     Q_PROPERTY (QString name READ name WRITE set_name) // zeroconf
 
     Q_INTERFACES (QQmlParserStatus)
+
+    avahi_simple_poll*
+    m_avpoll = nullptr;
+
+    avahi_entry_group*
+    m_avgroup = nullptr;
+
+    avahi_client*
+    m_avclient;
+
+    std::vector<Connection>
+    m_connections;
+
+    mg_mgr
+    m_tcp,
+    m_udp;
+
+    uint16_t
+    m_tcp_port = 5678,
+    m_udp_port = 1234;
+
+    pthread_t
+    m_mgthread,
+    m_avthread;
+
+    bool
+    m_running = false;
+
+    QString
+    m_name;
 
 public:
 
@@ -304,13 +347,18 @@ public:
         sprintf(s_udp, "%d", m_udp_port);
         strcat(udp_hdr, s_udp);
 
-        mg_connection* tcp_connection, *udp_connection;
-        tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler);
-        udp_connection = mg_bind(&m_udp, udp_hdr, udp_event_handler);
+        mg_connection* tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler);
+        mg_connection* udp_connection = mg_bind(&m_udp, udp_hdr, udp_event_handler);
+
         mg_set_protocol_http_websocket(tcp_connection);
 
         m_running = true;
         poll(this);
+
+        // run avahi
+        m_avpoll    = avahi_simple_poll_new();
+        m_avclient  = avahi_client_new(avahi_simple_poll_get(m_avpoll),
+                      AVAHI_CLIENT_NO_FAIL, avahi_client_callback, this, nullptr);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -319,7 +367,12 @@ public:
     //-------------------------------------------------------------------------------------------------
     {
         m_running = false;
-        pthread_join(m_thread, nullptr);
+        pthread_join(m_mgthread, nullptr);
+        pthread_join(m_avthread, nullptr);
+
+        avahi_client_free(m_avclient);
+        avahi_simple_poll_free(m_avpoll);
+
         mg_mgr_free(&m_tcp);
         mg_mgr_free(&m_udp);
     }
@@ -329,7 +382,8 @@ public:
     poll(Server* s)
     //-------------------------------------------------------------------------------------------------
     {
-        pthread_create(&s->m_thread, nullptr, pthread_server_poll, s);
+        pthread_create(&s->m_mgthread, nullptr, pthread_server_poll, s);
+        pthread_create(&s->m_avthread, nullptr, pthread_avahi_poll, s);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -345,6 +399,93 @@ public:
         }
 
         return nullptr;
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    static void*
+    pthread_avahi_poll(void* udata)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto server = static_cast<Server*>(udata);
+        avahi_simple_poll_loop(server->m_avpoll);
+        return nullptr;
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    static void
+    avahi_group_callback(avahi_entry_group* group, AvahiEntryGroupState state, void* udata)
+    //-------------------------------------------------------------------------------------------------
+    {
+        switch(state)
+        {
+        case AVAHI_ENTRY_GROUP_ESTABLISHED:
+        {
+            break;
+        }
+        case AVAHI_ENTRY_GROUP_COLLISION:
+        {
+            break;
+        }
+        case AVAHI_ENTRY_GROUP_FAILURE:
+        {
+            break;
+        }
+        case AVAHI_ENTRY_GROUP_UNCOMMITED:
+        {
+            break;
+        }
+        case AVAHI_ENTRY_GROUP_REGISTERING:
+        {
+            break;
+        }
+        }
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    static void
+    avahi_client_callback(avahi_client* client, AvahiClientState state, void* udata)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto server = static_cast<Server*>(udata);
+
+        switch(state)
+        {
+        case AVAHI_CLIENT_S_RUNNING:
+        {
+            auto group = server->m_avgroup;
+            if(!group)
+            {
+                server->m_avgroup = avahi_entry_group_new(client, avahi_group_callback, server);
+            }
+
+            if (avahi_entry_group_is_empty(group))
+            {
+                avahi_entry_group_add_service(group,
+                    AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, AVAHI_PUBLISH_UNIQUE,
+                    server->m_name.toStdString().c_str(), "_oscjson._tcp", nullptr, nullptr, 651);
+
+                avahi_entry_group_commit(group);
+            }
+            break;
+        }
+        case AVAHI_CLIENT_FAILURE:
+        {
+            break;
+        }
+        case AVAHI_CLIENT_S_COLLISION:
+        {
+            break;
+        }
+        case AVAHI_CLIENT_S_REGISTERING:
+        {
+            break;
+        }
+        case AVAHI_CLIENT_CONNECTING:
+        {
+            break;
+        }
+        }
+
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -481,28 +622,6 @@ public:
     {
         m_name = name;
     }
-
-private:
-
-    std::vector<Connection>
-    m_connections;
-
-    mg_mgr
-    m_tcp,
-    m_udp;
-
-    uint16_t
-    m_tcp_port = 5678,
-    m_udp_port = 1234;
-
-    pthread_t
-    m_thread;
-
-    bool
-    m_running = false;
-
-    QString
-    m_name;
 };
 
 //-------------------------------------------------------------------------------------------------
