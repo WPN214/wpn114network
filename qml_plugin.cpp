@@ -9,6 +9,9 @@ qml_plugin::registerTypes(const char *uri)
 {
     Q_UNUSED(uri)
 
+    qmlRegisterType<Connection, 1>
+    ("WPN114.Network", 1, 1, "Connection");
+
     qmlRegisterType<Server, 1>
     ("WPN114.Network", 1, 1, "Server");
 }

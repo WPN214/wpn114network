@@ -27,11 +27,16 @@ from_stream<QString>(QVariantList& arglist, QDataStream& stream);
 struct OSCMessage
 //-------------------------------------------------------------------------------------------------
 {
-    QString method;
-    QVariant arguments;
+    QString
+    method;
 
+    QVariant
+    arguments;
+
+    //---------------------------------------------------------------------------------------------
     OSCMessage() {}
 
+    //---------------------------------------------------------------------------------------------
     OSCMessage(QString mthd, QVariant args) :
         method(mthd), arguments(args) {}
 
@@ -139,6 +144,7 @@ struct OSCMessage
 
         switch(argument.type())
         {
+        case QVariant::Bool: stream << argument.value<bool>(); break;
         case QVariant::Int: stream << argument.value<int>(); break;
         case QVariant::Double: stream << argument.value<float>(); break;
         case QVariant::Vector2D: stream << argument.value<QVector2D>(); break;
@@ -166,20 +172,64 @@ class Connection : public QObject
 {
     Q_OBJECT
 
-    mg_connection* m_udp_connection;
-    mg_connection* m_ws_connection;
-    uint16_t m_udp_port = 0;
+    mg_connection*
+    m_udp_connection = nullptr;
+
+    mg_connection*
+    m_ws_connection = nullptr;
+
+    uint16_t
+    m_udp_port = 0;
+
+    QString
+    m_host_ip;
 
 public:
+
+    //---------------------------------------------------------------------------------------------
+    Connection() {}
+
+    //---------------------------------------------------------------------------------------------
     Connection(mg_connection* ws_connection) :
-        m_ws_connection(ws_connection) {}
+        m_ws_connection(ws_connection)
+    {
+        char addr[32];
+        mg_sock_addr_to_str(&ws_connection->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_IP);
+        m_host_ip = addr;
 
-    ~Connection() {}
+        qDebug() << "new connection" << m_host_ip;
+    }
 
+    //---------------------------------------------------------------------------------------------
+    Connection(Connection const& cp) :
+        m_ws_connection(cp.m_ws_connection),
+        m_udp_connection(cp.m_udp_connection),
+        m_udp_port(cp.m_udp_port),
+        m_host_ip(cp.m_host_ip) {}
+
+    //---------------------------------------------------------------------------------------------
+    virtual
+    ~Connection() override{}
+
+    //---------------------------------------------------------------------------------------------
+    Connection&
+    operator=(Connection const& cp)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_ws_connection = cp.m_ws_connection;
+        m_udp_connection = cp.m_udp_connection;
+        m_udp_port = cp.m_udp_port;
+        m_host_ip = cp.m_host_ip;
+
+        return *this;
+    }
+
+    //---------------------------------------------------------------------------------------------
     void
     set_udp(uint16_t udp)
+    //---------------------------------------------------------------------------------------------
     {
-        m_udp_port = udp;
+        m_udp_port = udp;        
 
         // TODO: fetch host from ws connection
         m_udp_connection = mg_connect(nullptr, nullptr, nullptr);
@@ -209,6 +259,8 @@ public:
     }
 };
 
+Q_DECLARE_METATYPE(Connection)
+
 //-------------------------------------------------------------------------------------------------
 class Server : public QObject, public QQmlParserStatus
 //-------------------------------------------------------------------------------------------------
@@ -219,25 +271,7 @@ class Server : public QObject, public QQmlParserStatus
     Q_PROPERTY (int udp READ udp WRITE set_udp)
     Q_PROPERTY (QString name READ name WRITE set_name) // zeroconf
 
-    std::vector<Connection>
-    m_connections;
-
-    mg_mgr
-    m_tcp,
-    m_udp;
-
-    uint16_t
-    m_tcp_port = 5678,
-    m_udp_port = 1234;
-
-    pthread_t
-    m_thread;
-
-    bool
-    m_running = false;
-
-    QString
-    m_name;
+    Q_INTERFACES (QQmlParserStatus)
 
 public:
 
@@ -314,11 +348,21 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    on_connection(Connection const& con)
+    // this method dwells in the qt thread, it has to be invoked with a queued connection
+    // from the mgr callback
+    //-------------------------------------------------------------------------------------------------
+    {
+        m_connections.push_back(con);
+    }
+
+    //-------------------------------------------------------------------------------------------------
     static void
     ws_event_handler(mg_connection* mgc, int event, void* data)
     //-------------------------------------------------------------------------------------------------
     {
-        auto server = static_cast<Server*>(mgc->mgr_data);
+        auto server = static_cast<Server*>(mgc->mgr->user_data);
 
         switch(event)
         {
@@ -328,7 +372,10 @@ public:
         }
         case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
         {
-            server->on_connection(mgc);
+            Connection con(mgc);
+            QMetaObject::invokeMethod(server, "on_connection",
+                Qt::QueuedConnection, Q_ARG(Connection, con));
+
             break;
         }
         case MG_EV_WEBSOCKET_FRAME:
@@ -367,16 +414,7 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    void
-    on_connection(mg_connection* connection)
-    //-------------------------------------------------------------------------------------------------
-    {
-        qDebug() << "new websocket connection";
-        m_connections.emplace_back(connection);
-    }
-
-    //-------------------------------------------------------------------------------------------------
-    void
+    Q_SLOT void
     on_disconnection(mg_connection* connection)
     //-------------------------------------------------------------------------------------------------
     {
@@ -384,7 +422,7 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    void
+    Q_SLOT void
     on_websocket_frame(mg_connection* connection, websocket_message* message)
     //-------------------------------------------------------------------------------------------------
     {
@@ -392,7 +430,7 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    void
+    Q_SLOT void
     on_udp_datagram(mg_connection* connection, mbuf* datagram)
     //-------------------------------------------------------------------------------------------------
     {
@@ -400,7 +438,7 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    void
+    Q_SLOT void
     on_http_request(mg_connection* connection, mg_str method)
     //-------------------------------------------------------------------------------------------------
     {
@@ -443,6 +481,28 @@ public:
     {
         m_name = name;
     }
+
+private:
+
+    std::vector<Connection>
+    m_connections;
+
+    mg_mgr
+    m_tcp,
+    m_udp;
+
+    uint16_t
+    m_tcp_port = 5678,
+    m_udp_port = 1234;
+
+    pthread_t
+    m_thread;
+
+    bool
+    m_running = false;
+
+    QString
+    m_name;
 };
 
 //-------------------------------------------------------------------------------------------------
