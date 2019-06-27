@@ -15,12 +15,11 @@ set(WPN114NETWORK_QML_SOURCES
     )
 
 add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml)
-add_definitions(-DQZEROCONF_STATIC)
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml -lmongoose)
 
 if(APPLE)
 elseif(UNIX AND NOT APPLE)
 endif()
 
 install(TARGETS ${PROJECT_NAME} DESTINATION /usr/lib/qt/qml/WPN114/Network)
-install(FILES qml/audio.qmltypes qml/qmldir DESTINATION /usr/lib/qt/qml/WPN114/Network)
+install(FILES qml/network.qmltypes qml/qmldir DESTINATION /usr/lib/qt/qml/WPN114/Network)

@@ -15,15 +15,198 @@
 
 #include <QtDebug>
 
+//---------------------------------------------------------------------------------------------
+template<typename _Valuetype> void
+from_stream(QVariantList& arglst, QDataStream& stream);
+
+//---------------------------------------------------------------------------------------------
+template<> void
+from_stream<QString>(QVariantList& arglist, QDataStream& stream);
+
+//-------------------------------------------------------------------------------------------------
+struct OSCMessage
+//-------------------------------------------------------------------------------------------------
+{
+    QString method;
+    QVariant arguments;
+
+    OSCMessage() {}
+
+    OSCMessage(QString mthd, QVariant args) :
+        method(mthd), arguments(args) {}
+
+    //---------------------------------------------------------------------------------------------
+    static QByteArray
+    encode(OSCMessage const& message)
+    //---------------------------------------------------------------------------------------------
+    {
+        QByteArray data;
+        QString typetag = OSCMessage::typetag(message.arguments).prepend(',');
+        data.append(message.method);
+
+        auto pads = 4-(message.method.count()%4);
+        while (pads--) data.append((char)0);
+
+        data.append(typetag);
+        pads = 4-(typetag.count()%4);
+
+        while (pads--) data.append((char)0);
+        append(data, message.arguments);
+
+        return data;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    static OSCMessage
+    decode(QByteArray const& data)
+    //---------------------------------------------------------------------------------------------
+    {
+        OSCMessage message;
+        QDataStream stream;
+        QString address, typetag;
+        QVariantList arguments;
+
+        stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
+
+        auto split = data.split(',');
+        message.method = split[0];
+        typetag = split[1].split('\0')[0];
+
+        uint8_t adpads = 4-(message.method.count()%4);
+        uint8_t ttpads = 4-(typetag.count()%4);
+        uint32_t total = message.method.count()+adpads+typetag.count()+ttpads+1;
+
+        stream.skipRawData(total);
+
+        for (const auto& c : typetag) {
+            switch(c.toLatin1()) {
+                case 'i': from_stream<int>(arguments, stream); break;
+                case 'f': from_stream<float>(arguments, stream); break;
+                case 's': from_stream<QString>(arguments, stream); break;
+                case 'T': arguments << true; break;
+                case 'F': arguments << false; break;
+            }}
+
+        message.method = address;
+
+        switch(arguments.count()) {
+            case 0: return message;
+            case 1: message.arguments = arguments[0]; break;
+            default: message.arguments = arguments;
+        }
+
+        return message;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    static QString
+    typetag(QVariant const& argument)
+    //---------------------------------------------------------------------------------------------
+    {
+        switch (argument.type()) {
+            case QVariant::Bool: return argument.value<bool>() ? "T" : "F";
+            case QVariant::Int: return "i";
+            case QVariant::Double: return "f";
+            case QVariant::String: return "s";
+            case QVariant::Vector2D: return "ff";
+            case QVariant::Vector3D: return "fff";
+            case QVariant::Vector4D: return "ffff";
+        }
+
+        if (argument.type() == QVariant::List ||
+            strcmp(argument.typeName(), "QJSValue") == 0)
+        {
+            // if argument is QVariantList or QJSValue
+            // recursively parse arguments
+            QString tag;
+            for (const auto& sub: argument.toList())
+                 tag.append(OSCMessage::typetag(sub));
+            return tag;
+        }
+
+        return "N";
+    }
+
+    //---------------------------------------------------------------------------------------------
+    static void
+    append(QByteArray& data, QVariant const& argument)
+    // parse an OSC argument, integrate it with a byte array
+    //---------------------------------------------------------------------------------------------
+    {
+        QDataStream stream(&data, QIODevice::ReadWrite);
+        stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
+        stream.skipRawData(data.size());
+
+        switch(argument.type())
+        {
+        case QVariant::Int: stream << argument.value<int>(); break;
+        case QVariant::Double: stream << argument.value<float>(); break;
+        case QVariant::Vector2D: stream << argument.value<QVector2D>(); break;
+        case QVariant::Vector3D: stream << argument.value<QVector3D>(); break;
+        case QVariant::Vector4D: stream << argument.value<QVector4D>(); break;
+
+        case QVariant::String: {
+            QByteArray str = argument.toString().toUtf8();
+            auto pads = 4-(str.count()%4);
+            while (pads--) str.append('\0');
+            data.append(str);
+            return;
+        }
+        case QVariant::List: {
+            for (const auto& sub : argument.value<QVariantList>())
+                 OSCMessage::append(data, sub);
+        }
+        }
+    }
+};
+
 //-------------------------------------------------------------------------------------------------
 class Connection : public QObject
 //-------------------------------------------------------------------------------------------------
 {
     Q_OBJECT
 
+    mg_connection* m_udp_connection;
+    mg_connection* m_ws_connection;
+    uint16_t m_udp_port = 0;
+
 public:
-    Connection();
-    ~Connection();
+    Connection(mg_connection* ws_connection) :
+        m_ws_connection(ws_connection) {}
+
+    ~Connection() {}
+
+    void
+    set_udp(uint16_t udp)
+    {
+        m_udp_port = udp;
+
+        // TODO: fetch host from ws connection
+        m_udp_connection = mg_connect(nullptr, nullptr, nullptr);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    writeOSC(QString method, QVariantList arguments, bool critical = false)
+    //-------------------------------------------------------------------------------------------------
+    {
+        OSCMessage msg(method, arguments);
+        auto b_arr = OSCMessage::encode(msg);
+
+        if (critical)
+             mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_BINARY,
+             b_arr.data(), b_arr.count());
+        else mg_send(m_udp_connection, b_arr.data(), b_arr.count());
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    writeText(QString text)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto utf8 = text.toUtf8();
+        mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_TEXT, utf8.data(), utf8.count());
+    }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -36,7 +219,7 @@ class Server : public QObject, public QQmlParserStatus
     Q_PROPERTY (int udp READ udp WRITE set_udp)
     Q_PROPERTY (QString name READ name WRITE set_name) // zeroconf
 
-    std::vector<mg_connection*>
+    std::vector<Connection>
     m_connections;
 
     mg_mgr
@@ -52,6 +235,9 @@ class Server : public QObject, public QQmlParserStatus
 
     bool
     m_running = false;
+
+    QString
+    m_name;
 
 public:
 
@@ -78,16 +264,15 @@ public:
     componentComplete() override
     //-------------------------------------------------------------------------------------------------
     {
-        char s_tcp[5], s_udp[5];
-        char udp_hdr[128] = "udp://";
+        char s_tcp[5], s_udp[5], udp_hdr[32] = "udp://";
 
         sprintf(s_tcp, "%d", m_tcp_port);
         sprintf(s_udp, "%d", m_udp_port);
         strcat(udp_hdr, s_udp);
 
         mg_connection* tcp_connection, *udp_connection;
-        tcp_connection = mg_bind(&m_tcp, s_tcp, event_handler);
-        udp_connection = mg_bind(&m_udp, udp_hdr, event_handler);
+        tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler);
+        udp_connection = mg_bind(&m_udp, udp_hdr, udp_event_handler);
         mg_set_protocol_http_websocket(tcp_connection);
 
         m_running = true;
@@ -99,6 +284,8 @@ public:
     ~Server() override
     //-------------------------------------------------------------------------------------------------
     {
+        m_running = false;
+        pthread_join(m_thread, nullptr);
         mg_mgr_free(&m_tcp);
         mg_mgr_free(&m_udp);
     }
@@ -117,8 +304,8 @@ public:
     //-------------------------------------------------------------------------------------------------
     {
         auto server = static_cast<Server*>(udata);
-        while (server->running())
-        {
+
+        while (server->m_running) {
             mg_mgr_poll(&server->m_tcp, 200);
             mg_mgr_poll(&server->m_udp, 200);
         }
@@ -128,7 +315,7 @@ public:
 
     //-------------------------------------------------------------------------------------------------
     static void
-    event_handler(mg_connection* mgc, int event, void* data)
+    ws_event_handler(mg_connection* mgc, int event, void* data)
     //-------------------------------------------------------------------------------------------------
     {
         auto server = static_cast<Server*>(mgc->mgr_data);
@@ -137,7 +324,6 @@ public:
         {
         case MG_EV_RECV:
         {
-            server->on_udp_datagram(mgc, &mgc->recv_mbuf);
             break;
         }
         case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
@@ -155,7 +341,7 @@ public:
         case MG_EV_HTTP_REQUEST:
         {
             http_message* msg = static_cast<http_message*>(data);
-            server->on_http_request(mgc, msg->method);
+            server->on_http_request(mgc, msg->query_string);
             break;
         }
         case MG_EV_CLOSE:
@@ -167,12 +353,26 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
+    static void
+    udp_event_handler(mg_connection* mgc, int event, void* data)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto server = static_cast<Server*>(mgc->mgr_data);
+
+        switch(event) {
+        case MG_EV_RECV:
+            server->on_udp_datagram(mgc, &mgc->recv_mbuf);
+            break;
+        }
+    }
+
+    //-------------------------------------------------------------------------------------------------
     void
     on_connection(mg_connection* connection)
     //-------------------------------------------------------------------------------------------------
     {
         qDebug() << "new websocket connection";
-
+        m_connections.emplace_back(connection);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -188,7 +388,7 @@ public:
     on_websocket_frame(mg_connection* connection, websocket_message* message)
     //-------------------------------------------------------------------------------------------------
     {
-        qDebug() << "websocket message" << message->data;
+        QByteArray frame((const char*)message->data, message->size);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -196,7 +396,7 @@ public:
     on_udp_datagram(mg_connection* connection, mbuf* datagram)
     //-------------------------------------------------------------------------------------------------
     {
-        qDebug() << "udp datagram" << datagram->buf;
+        QByteArray cdg(datagram->buf, datagram->len);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -204,7 +404,8 @@ public:
     on_http_request(mg_connection* connection, mg_str method)
     //-------------------------------------------------------------------------------------------------
     {
-        qDebug() << "http request" << method.p;
+        char cmethod[256];
+        memcpy(cmethod, method.p, method.len);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -231,6 +432,17 @@ public:
     {
         m_udp_port = port;
     }
+
+    //-------------------------------------------------------------------------------------------------
+    QString
+    name() const { return m_name; }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    set_name(QString name)
+    {
+        m_name = name;
+    }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -239,7 +451,7 @@ class Client : public QObject
 {
     Q_OBJECT
 
-    Q_PROPERTY (QString host READ host WRITE set_host)
+//    Q_PROPERTY (QString host READ host WRITE set_host)
 
     mg_connection*
     m_connection;
@@ -248,7 +460,7 @@ class Client : public QObject
     m_thread;
 
     mg_mgr
-    mgr;
+    m_mgr;
 
 public:
 
@@ -372,6 +584,9 @@ public:
     QString
     path() const { return m_path; }
 
+    Q_SIGNAL void
+    pathChanged();
+
     void
     set_path(QString path)
     {
@@ -391,6 +606,9 @@ public:
     //---------------------------------------------------------------------------------------------
     bool
     critical() const { return m_critical; }
+
+    Q_SIGNAL void
+    criticalChanged();
 
     void
     set_critical(bool critical)
@@ -472,165 +690,6 @@ private:
     m_critical = false;
 };
 
-//-------------------------------------------------------------------------------------------------
-struct OSCMessage
-//-------------------------------------------------------------------------------------------------
-{
-    QString address;
-    QVariant arguments;
-
-    //---------------------------------------------------------------------------------------------
-    static QByteArray
-    encode(OSCMessage const& message)
-    //---------------------------------------------------------------------------------------------
-    {
-        QByteArray data;
-        QString typetag = OSCMessage::typetag(message.arguments).prepend(',');
-        data.append(message.address);
-
-        auto pads = 4-(message.address.count()%4);
-        while (pads--) data.append((char)0);
-
-        data.append(typetag);
-        pads = 4-(typetag.count()%4);
-
-        while (pads--) data.append((char)0);
-        append(data, message.arguments);
-
-        return data;
-    }
-
-    //---------------------------------------------------------------------------------------------
-    template<typename _Valuetype> static void
-    from_stream(QVariantList& arglst, QDataStream& stream)
-    //---------------------------------------------------------------------------------------------
-    {
-        _Valuetype target_value;
-        stream >> target_value;
-        arglst << target_value;
-    }
-
-    //---------------------------------------------------------------------------------------------
-    template<> static void
-    from_stream<QString>(QVariantList& arglist, QDataStream& stream)
-    //---------------------------------------------------------------------------------------------
-    {
-        uint8_t byte;
-        QByteArray data;
-
-        stream >> byte;
-        while (byte) { data.append(byte); stream >> byte; }
-
-        uint8_t padding = 4-(data.count()%4);
-        stream.skipRawData(padding-1);
-        arglist << QString::fromUtf8(data);
-    }
-
-    //---------------------------------------------------------------------------------------------
-    static OSCMessage
-    decode(QByteArray const& data)
-    //---------------------------------------------------------------------------------------------
-    {
-        OSCMessage message;
-        QDataStream stream;
-        QString address, typetag;
-        QVariantList arguments;
-
-        stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
-
-        auto split = data.split(',');
-        message.address = split[0];
-        typetag = split[1].split('\0')[0];
-
-        uint8_t adpads = 4-(message.address.count()%4);
-        uint8_t ttpads = 4-(typetag.count()%4);
-        uint32_t total = message.address.count()+adpads+typetag.count()+ttpads+1;
-
-        stream.skipRawData(total);
-
-        for (const auto& c : typetag) {
-            switch(c.toLatin1()) {
-                case 'i': OSCMessage::from_stream<int>(arguments, stream); break;
-                case 'f': OSCMessage::from_stream<float>(arguments, stream); break;
-                case 's': OSCMessage::from_stream<QString>(arguments, stream); break;
-                case 'T': arguments << true; break;
-                case 'F': arguments << false; break;
-            }}
-
-        message.address = address;
-
-        switch(arguments.count()) {
-            case 0: return message;
-            case 1: message.arguments = arguments[0]; break;
-            default: message.arguments = arguments;
-        }
-
-        return message;
-    }
-
-    //---------------------------------------------------------------------------------------------
-    static QString
-    typetag(QVariant const& argument)
-    //---------------------------------------------------------------------------------------------
-    {
-        switch (argument.type()) {
-            case QVariant::Bool: return argument.value<bool>() ? "T" : "F";
-            case QVariant::Int: return "i";
-            case QVariant::Double: return "f";
-            case QVariant::String: return "s";
-            case QVariant::Vector2D: return "ff";
-            case QVariant::Vector3D: return "fff";
-            case QVariant::Vector4D: return "ffff";
-        }
-
-        if (argument.type() == QVariant::List ||
-            strcmp(argument.typeName(), "QJSValue") == 0)
-        {
-            // if argument is QVariantList or QJSValue
-            // recursively parse arguments
-            QString tag;
-            for (const auto& sub: argument.toList())
-                 tag.append(OSCMessage::typetag(sub));
-            return tag;
-        }
-
-        return "N";
-    }
-
-    //---------------------------------------------------------------------------------------------
-    static void
-    append(QByteArray& data, QVariant const& argument)
-    // parse an OSC argument, integrate it with a byte array
-    //---------------------------------------------------------------------------------------------
-    {
-        QDataStream stream(&data, QIODevice::ReadWrite);
-        stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
-        stream.skipRawData(data.size());
-
-        switch(argument.type())
-        {
-        case QVariant::Int: stream << argument.value<int>(); break;
-        case QVariant::Double: stream << argument.value<float>(); break;
-
-        case QVariant::Vector2D: stream << argument.value<QVector2D>(); break;
-        case QVariant::Vector3D: stream << argument.value<QVector3D>(); break;
-        case QVariant::Vector4D: stream << argument.value<QVector4D>(); break;
-
-        case QVariant::String: {
-            QByteArray str = argument.toString().toUtf8();
-            auto pads = 4-(str.count()%4);
-            while (pads--) str.append('\0');
-            data.append(str);
-            return;
-        }
-        case QVariant::List: {
-            for (const auto& sub : argument.value<QVariantList>())
-                OSCMessage::append(data, sub);
-        }
-        }
-    }
-};
-
 //---------------------------------------------------------------------------------------------
 class Tree : public QObject
 //---------------------------------------------------------------------------------------------
@@ -710,11 +769,23 @@ public:
         return 0;
     }
 
+    void
+    set_tcp(uint16_t)
+    {
+
+    }
+
     //---------------------------------------------------------------------------------------------
     uint16_t
     udp() const
     {
         return 0;
+    }
+
+    void
+    set_udp(uint16_t)
+    {
+
     }
 
     //---------------------------------------------------------------------------------------------
