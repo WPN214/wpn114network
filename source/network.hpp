@@ -314,7 +314,7 @@ class Server : public QObject, public QQmlParserStatus
     m_running = false;
 
     QString
-    m_name;
+    m_name = "wpn114";
 
 public:
 
@@ -352,13 +352,12 @@ public:
 
         mg_set_protocol_http_websocket(tcp_connection);
 
-        m_running = true;
-        poll(this);
-
-        // run avahi
         m_avpoll    = avahi_simple_poll_new();
         m_avclient  = avahi_client_new(avahi_simple_poll_get(m_avpoll),
-                      AVAHI_CLIENT_NO_FAIL, avahi_client_callback, this, nullptr);
+                      static_cast<AvahiClientFlags>(0), avahi_client_callback, this, nullptr);
+
+        m_running = true;
+        poll();
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -378,12 +377,12 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    static void
-    poll(Server* s)
+    void
+    poll()
     //-------------------------------------------------------------------------------------------------
     {
-        pthread_create(&s->m_mgthread, nullptr, pthread_server_poll, s);
-        pthread_create(&s->m_avthread, nullptr, pthread_avahi_poll, s);
+        pthread_create(&m_mgthread, nullptr, pthread_server_poll, this);
+        pthread_create(&m_avthread, nullptr, pthread_avahi_poll, this);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -418,24 +417,29 @@ public:
     {
         switch(state)
         {
+        case AVAHI_ENTRY_GROUP_REGISTERING:
+        {
+            fprintf(stderr, "[avahi] entry group registering\n");
+            break;
+        }
         case AVAHI_ENTRY_GROUP_ESTABLISHED:
         {
+            fprintf(stderr, "[avahi] entry group established\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_COLLISION:
         {
+            fprintf(stderr, "[avahi] entry group collision\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_FAILURE:
         {
+            fprintf(stderr, "[avahi] entry group failure\n");
             break;
         }
         case AVAHI_ENTRY_GROUP_UNCOMMITED:
         {
-            break;
-        }
-        case AVAHI_ENTRY_GROUP_REGISTERING:
-        {
+            fprintf(stderr, "[avahi] entry group uncommited\n");
             break;
         }
         }
@@ -450,42 +454,62 @@ public:
 
         switch(state)
         {
+        case AVAHI_CLIENT_CONNECTING:
+        {
+            fprintf(stderr, "[avahi] client connecting\n");
+            break;
+        }
+        case AVAHI_CLIENT_S_REGISTERING:
+        {
+            fprintf(stderr, "[avahi] client registering\n");
+            break;
+        }
         case AVAHI_CLIENT_S_RUNNING:
         {
+            fprintf(stderr, "[avahi] client running\n");
+
             auto group = server->m_avgroup;
             if(!group)
             {
-                server->m_avgroup = avahi_entry_group_new(client, avahi_group_callback, server);
+                fprintf(stderr, "[avahi] creating entry group\n");
+                group  = avahi_entry_group_new(client, avahi_group_callback, server);
+                server->m_avgroup = group;
             }
 
             if (avahi_entry_group_is_empty(group))
             {
-                avahi_entry_group_add_service(group,
-                    AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, AVAHI_PUBLISH_UNIQUE,
-                    server->m_name.toStdString().c_str(), "_oscjson._tcp", nullptr, nullptr, 651);
+                fprintf(stderr, "[avahi] adding service\n");
 
-                avahi_entry_group_commit(group);
+                int err = avahi_entry_group_add_service(group,
+                    AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, static_cast<AvahiPublishFlags>(0),
+                    server->m_name.toStdString().c_str(), "_oscjson._tcp", nullptr, nullptr, server->m_tcp_port, nullptr);
+
+                if (err) {
+                     fprintf(stderr, "Failed to add service: %s\n", avahi_strerror(err));
+                     return;
+                }
+
+                fprintf(stderr, "[avahi] commiting service\n");
+                err = avahi_entry_group_commit(group);
+
+                if (err) {
+                    fprintf(stderr, "Failed to commit group: %s\n", avahi_strerror(err));
+                    return;
+                }
             }
             break;
         }
         case AVAHI_CLIENT_FAILURE:
         {
+            fprintf(stderr, "[avahi] client failure");
             break;
         }
         case AVAHI_CLIENT_S_COLLISION:
         {
-            break;
-        }
-        case AVAHI_CLIENT_S_REGISTERING:
-        {
-            break;
-        }
-        case AVAHI_CLIENT_CONNECTING:
-        {
+            fprintf(stderr, "[avahi] client collision");
             break;
         }
         }
-
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -516,7 +540,6 @@ public:
             Connection con(mgc);
             QMetaObject::invokeMethod(server, "on_connection",
                 Qt::QueuedConnection, Q_ARG(Connection, con));
-
             break;
         }
         case MG_EV_WEBSOCKET_FRAME:

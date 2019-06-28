@@ -15,7 +15,7 @@ set(WPN114NETWORK_QML_SOURCES
     )
 
 add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml -lmongoose)
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml -lmongoose -lavahi-common -lavahi-client)
 
 if(APPLE)
 elseif(UNIX AND NOT APPLE)
