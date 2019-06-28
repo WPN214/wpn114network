@@ -28,45 +28,43 @@ struct OSCMessage
 //-------------------------------------------------------------------------------------------------
 {
     QString
-    method;
+    m_method;
 
     QVariant
-    arguments;
+    m_arguments;
 
     //---------------------------------------------------------------------------------------------
     OSCMessage() {}
 
     //---------------------------------------------------------------------------------------------
-    OSCMessage(QString mthd, QVariant args) :
-        method(mthd), arguments(args) {}
+    OSCMessage(QString method, QVariant arguments) :
+        m_method(method), m_arguments(arguments) {}
 
     //---------------------------------------------------------------------------------------------
-    static QByteArray
-    encode(OSCMessage const& message)
+    QByteArray
+    encode() const
     //---------------------------------------------------------------------------------------------
     {
         QByteArray data;
-        QString typetag = OSCMessage::typetag(message.arguments).prepend(',');
-        data.append(message.method);
+        QString tt = typetag(m_arguments).prepend(',');
+        data.append(m_method);
 
-        auto pads = 4-(message.method.count()%4);
+        auto pads = 4-(m_method.count()%4);
         while (pads--) data.append((char)0);
 
-        data.append(typetag);
-        pads = 4-(typetag.count()%4);
+        data.append(tt);
+        pads = 4-(tt.count()%4);
 
         while (pads--) data.append((char)0);
-        append(data, message.arguments);
+        append(data, m_arguments);
 
         return data;
     }
 
     //---------------------------------------------------------------------------------------------
-    static OSCMessage
-    decode(QByteArray const& data)
+    OSCMessage(QByteArray const& data)
     //---------------------------------------------------------------------------------------------
     {
-        OSCMessage message;
         QDataStream stream;
         QString address, typetag;
         QVariantList arguments;
@@ -74,12 +72,12 @@ struct OSCMessage
         stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
 
         auto split = data.split(',');
-        message.method = split[0];
+        m_method = split[0];
         typetag = split[1].split('\0')[0];
 
-        uint8_t adpads = 4-(message.method.count()%4);
+        uint8_t adpads = 4-(m_method.count()%4);
         uint8_t ttpads = 4-(typetag.count()%4);
-        uint32_t total = message.method.count()+adpads+typetag.count()+ttpads+1;
+        uint32_t total = m_method.count()+adpads+typetag.count()+ttpads+1;
 
         stream.skipRawData(total);
 
@@ -92,20 +90,18 @@ struct OSCMessage
                 case 'F': arguments << false; break;
             }}
 
-        message.method = address;
+        m_method = address;
 
         switch(arguments.count()) {
-            case 0: return message;
-            case 1: message.arguments = arguments[0]; break;
-            default: message.arguments = arguments;
+            case 0: break;
+            case 1: m_arguments = arguments[0]; break;
+            default: m_arguments = arguments;
         }
-
-        return message;
     }
 
     //---------------------------------------------------------------------------------------------
-    static QString
-    typetag(QVariant const& argument)
+    QString
+    typetag(QVariant const& argument) const
     //---------------------------------------------------------------------------------------------
     {
         switch (argument.type()) {
@@ -133,8 +129,8 @@ struct OSCMessage
     }
 
     //---------------------------------------------------------------------------------------------
-    static void
-    append(QByteArray& data, QVariant const& argument)
+    void
+    append(QByteArray& data, QVariant const& argument) const
     // parse an OSC argument, integrate it with a byte array
     //---------------------------------------------------------------------------------------------
     {
@@ -241,7 +237,7 @@ public:
     //-------------------------------------------------------------------------------------------------
     {
         OSCMessage msg(method, arguments);
-        auto b_arr = OSCMessage::encode(msg);
+        auto b_arr = msg.encode();
 
         if (critical)
              mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_BINARY,
@@ -571,9 +567,9 @@ public:
         auto server = static_cast<Server*>(mgc->mgr_data);
 
         switch(event) {
-        case MG_EV_RECV:
-            server->on_udp_datagram(mgc, &mgc->recv_mbuf);
-            break;
+            case MG_EV_RECV:
+                server->on_udp_datagram(mgc, &mgc->recv_mbuf);
+                break;
         }
     }
 
