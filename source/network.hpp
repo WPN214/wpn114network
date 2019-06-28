@@ -237,6 +237,9 @@ using avahi_client = AvahiClient;
 using avahi_simple_poll = AvahiSimplePoll;
 using avahi_entry_group = AvahiEntryGroup;
 
+#include <QJsonObject>
+#include <QJsonDocument>
+
 //-------------------------------------------------------------------------------------------------
 class Server : public QObject, public QQmlParserStatus
 //-------------------------------------------------------------------------------------------------
@@ -504,10 +507,50 @@ public:
         }
         case MG_EV_HTTP_REQUEST:
         {
+            http_message* hm = static_cast<http_message*>(data);
+            auto uri = QString::fromUtf8(hm->uri.p, hm->uri.len);
+            auto qst = QString::fromUtf8(hm->query_string.p, hm->query_string.len);
+
+            if (qst == "HOST_INFO")
+            {
+                QJsonObject obj
+                {
+                    { "NAME", server->name()},
+                    { "OSC_PORT", server->udp() },
+                    { "OSC_TRANSPORT", "UDP" }
+                };
+
+                QJsonDocument doc(obj);
+                auto ba = doc.toJson(QJsonDocument::Compact);
+
+                qDebug() << "[http-reply-out]" << ba;
+                mg_send_head(mgc, 200, ba.count(), "Content-Type: application/json; charset=utf-8");
+                mg_send(mgc, ba.data(), ba.count());
+            }
+
+            else
+            {
+                QJsonObject contents;
+                QJsonObject obj
+                {
+                    { "DESCRIPTION", "root" },
+                    { "FULL_PATH", "/" },
+                    { "ACCESS", 0 },
+                    { "CONTENTS", contents }
+                };
+
+                QJsonDocument doc(obj);
+                auto ba = doc.toJson(QJsonDocument::Compact);
+
+                mg_send_head(mgc, 200, ba.count(), "Content-Type: application/json; charset=utf-8");
+                mg_send(mgc, ba.data(), ba.count());
+            }
+
             QMetaObject::invokeMethod(server, "on_http_request",
                 Qt::QueuedConnection,
                 Q_ARG(mg_connection*, mgc),
-                Q_ARG(http_message*, static_cast<http_message*>(data)));
+                Q_ARG(QString, uri),
+                Q_ARG(QString, qst));
             break;
         }
         case MG_EV_CLOSE:
@@ -550,7 +593,7 @@ public:
     on_disconnection(mg_connection* connection)
     //-------------------------------------------------------------------------------------------------
     {
-        qDebug() << "websocket disconnection";
+
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -562,6 +605,10 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
+    Q_SIGNAL void
+    oscMessageReceived(OSCMessage msg);
+
+    //-------------------------------------------------------------------------------------------------
     Q_INVOKABLE void
     on_udp_datagram(mg_connection* connection)
     //-------------------------------------------------------------------------------------------------
@@ -570,18 +617,16 @@ public:
                        connection->recv_mbuf.len);
 
         OSCMessage msg(cdg);
-        qDebug() << msg.m_method << msg.m_arguments;
-    }
+        qDebug() << "[osc]" << msg.m_method << msg.m_arguments;
+
+    }    
 
     //-------------------------------------------------------------------------------------------------
     Q_INVOKABLE void
-    on_http_request(mg_connection* connection, http_message* request)
+    on_http_request(mg_connection* connection, QString uri, QString query)
     //-------------------------------------------------------------------------------------------------
-    {        
-        QByteArray b_arr(request->query_string.p, request->query_string.len);
-        QString method(b_arr);
-
-        qDebug() << "[http] requesting" << method;
+    {                
+        qDebug() << "[http-request]" << uri << query;
     }
 
     //-------------------------------------------------------------------------------------------------
