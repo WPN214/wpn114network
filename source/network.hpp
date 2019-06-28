@@ -62,42 +62,7 @@ struct OSCMessage
     }
 
     //---------------------------------------------------------------------------------------------
-    OSCMessage(QByteArray const& data)
-    //---------------------------------------------------------------------------------------------
-    {
-        QDataStream stream;
-        QString address, typetag;
-        QVariantList arguments;
-
-        stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
-
-        auto split = data.split(',');
-        m_method = split[0];
-        typetag = split[1].split('\0')[0];
-
-        uint8_t adpads = 4-(m_method.count()%4);
-        uint8_t ttpads = 4-(typetag.count()%4);
-        uint32_t total = m_method.count()+adpads+typetag.count()+ttpads+1;
-
-        stream.skipRawData(total);
-
-        for (const auto& c : typetag) {
-            switch(c.toLatin1()) {
-                case 'i': from_stream<int>(arguments, stream); break;
-                case 'f': from_stream<float>(arguments, stream); break;
-                case 's': from_stream<QString>(arguments, stream); break;
-                case 'T': arguments << true; break;
-                case 'F': arguments << false; break;
-            }}
-
-        m_method = address;
-
-        switch(arguments.count()) {
-            case 0: break;
-            case 1: m_arguments = arguments[0]; break;
-            default: m_arguments = arguments;
-        }
-    }
+    OSCMessage(QByteArray const& data);
 
     //---------------------------------------------------------------------------------------------
     QString
@@ -255,7 +220,9 @@ public:
     }
 };
 
-Q_DECLARE_METATYPE(Connection)
+Q_DECLARE_METATYPE(mg_connection*)
+Q_DECLARE_METATYPE(http_message*)
+Q_DECLARE_METATYPE(websocket_message*)
 
 #include <avahi-client/client.h>
 #include <avahi-client/publish.h>
@@ -477,7 +444,7 @@ public:
                 fprintf(stderr, "[avahi] adding service\n");
 
                 int err = avahi_entry_group_add_service(group,
-                    AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, static_cast<AvahiPublishFlags>(0),
+                    AVAHI_IF_UNSPEC, AVAHI_PROTO_INET, static_cast<AvahiPublishFlags>(0),
                     server->m_name.toStdString().c_str(), "_oscjson._tcp", nullptr, nullptr, server->m_tcp_port, nullptr);
 
                 if (err) {
@@ -509,16 +476,6 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    Q_INVOKABLE void
-    on_connection(Connection const& con)
-    // this method dwells in the qt thread, it has to be invoked with a queued connection
-    // from the mgr callback
-    //-------------------------------------------------------------------------------------------------
-    {
-        m_connections.push_back(con);
-    }
-
-    //-------------------------------------------------------------------------------------------------
     static void
     ws_event_handler(mg_connection* mgc, int event, void* data)
     //-------------------------------------------------------------------------------------------------
@@ -533,27 +490,31 @@ public:
         }
         case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
         {
-            Connection con(mgc);
             QMetaObject::invokeMethod(server, "on_connection",
-                Qt::QueuedConnection, Q_ARG(Connection, con));
+                Qt::QueuedConnection, Q_ARG(mg_connection*, mgc));
             break;
         }
         case MG_EV_WEBSOCKET_FRAME:
         {
-            websocket_message* msg = static_cast<websocket_message*>(data);
-            server->on_websocket_frame(mgc, msg);
-            // parse message...
+            QMetaObject::invokeMethod(server, "on_websocket_frame",
+                Qt::QueuedConnection,
+                Q_ARG(mg_connection*, mgc),
+                Q_ARG(websocket_message*, static_cast<websocket_message*>(data)));
             break;
         }
         case MG_EV_HTTP_REQUEST:
         {
-            http_message* msg = static_cast<http_message*>(data);
-            server->on_http_request(mgc, msg->query_string);
+            QMetaObject::invokeMethod(server, "on_http_request",
+                Qt::QueuedConnection,
+                Q_ARG(mg_connection*, mgc),
+                Q_ARG(http_message*, static_cast<http_message*>(data)));
             break;
         }
         case MG_EV_CLOSE:
         {
-            server->on_disconnection(mgc);
+            QMetaObject::invokeMethod(server, "on_disconnection",
+                Qt::QueuedConnection,
+                Q_ARG(mg_connection*, mgc));
             break;
         }
         }
@@ -564,17 +525,28 @@ public:
     udp_event_handler(mg_connection* mgc, int event, void* data)
     //-------------------------------------------------------------------------------------------------
     {
-        auto server = static_cast<Server*>(mgc->mgr_data);
+        auto server = static_cast<Server*>(mgc->mgr->user_data);
 
         switch(event) {
             case MG_EV_RECV:
-                server->on_udp_datagram(mgc, &mgc->recv_mbuf);
+            QMetaObject::invokeMethod(server, "on_udp_datagram", Qt::QueuedConnection,
+                                      Q_ARG(mg_connection*, mgc));
                 break;
         }
     }
 
     //-------------------------------------------------------------------------------------------------
-    Q_SLOT void
+    Q_INVOKABLE void
+    on_connection(mg_connection* con)
+    // this method dwells in the qt thread, it has to be invoked with a queued connection
+    // from the mgr callback
+    //-------------------------------------------------------------------------------------------------
+    {
+        m_connections.emplace_back(con);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
     on_disconnection(mg_connection* connection)
     //-------------------------------------------------------------------------------------------------
     {
@@ -582,7 +554,7 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    Q_SLOT void
+    Q_INVOKABLE void
     on_websocket_frame(mg_connection* connection, websocket_message* message)
     //-------------------------------------------------------------------------------------------------
     {
@@ -590,20 +562,26 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    Q_SLOT void
-    on_udp_datagram(mg_connection* connection, mbuf* datagram)
+    Q_INVOKABLE void
+    on_udp_datagram(mg_connection* connection)
     //-------------------------------------------------------------------------------------------------
     {
-        QByteArray cdg(datagram->buf, datagram->len);
+        QByteArray cdg(connection->recv_mbuf.buf,
+                       connection->recv_mbuf.len);
+
+        OSCMessage msg(cdg);
+        qDebug() << msg.m_method << msg.m_arguments;
     }
 
     //-------------------------------------------------------------------------------------------------
-    Q_SLOT void
-    on_http_request(mg_connection* connection, mg_str method)
+    Q_INVOKABLE void
+    on_http_request(mg_connection* connection, http_message* request)
     //-------------------------------------------------------------------------------------------------
-    {
-        char cmethod[256];
-        memcpy(cmethod, method.p, method.len);
+    {        
+        QByteArray b_arr(request->query_string.p, request->query_string.len);
+        QString method(b_arr);
+
+        qDebug() << "[http] requesting" << method;
     }
 
     //-------------------------------------------------------------------------------------------------
