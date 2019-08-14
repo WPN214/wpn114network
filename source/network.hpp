@@ -1018,7 +1018,8 @@ class Client : public QObject
 {
     Q_OBJECT
 
-//    Q_PROPERTY (QString host READ host WRITE set_host)
+    Q_PROPERTY (QString host READ host WRITE set_host)
+    Q_PROPERTY (int port READ port WRITE set_port)
 
     mg_connection*
     m_connection;
@@ -1028,6 +1029,18 @@ class Client : public QObject
 
     mg_mgr
     m_mgr;
+
+    QString
+    m_host;
+
+    uint16_t
+    m_port = 0;
+
+    bool
+    m_running = false;
+
+    Tree
+    m_tree;
 
 public:
 
@@ -1041,7 +1054,7 @@ public:
     Client()
     //-------------------------------------------------------------------------------------------------
     {
-
+        mg_mgr_init(&m_mgr, this);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -1049,6 +1062,102 @@ public:
     ~Client() override
     //-------------------------------------------------------------------------------------------------
     {
+        pthread_join(m_thread, nullptr);
+        mg_mgr_free(&m_mgr);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    QString
+    host() const { return m_host; }
+
+    uint16_t
+    port() const { return m_port; }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    set_host(QString host)
+    {
+        m_host = host;
+    }
+
+    void
+    set_port(uint16_t port)
+    {
+        m_port = port;
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    connect()
+    //-------------------------------------------------------------------------------------------------
+    {
+        QString ws_addr("ws://");
+        ws_addr.append(m_host);
+        ws_addr.append(":");
+        ws_addr.append(QString::number(m_port));
+
+        m_connection = mg_connect_ws(&m_mgr, event_handler, ws_addr.toStdString().c_str(), nullptr, nullptr);
+        assert(m_connection);
+
+        m_running = true;
+        pthread_create(&m_thread, nullptr, pthread_client_poll, this);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    request(QString req)
+    //-------------------------------------------------------------------------------------------------
+    {
+        QString addr(m_host);
+        addr.append(":");
+        addr.append(QString::number(m_port));
+        addr.append(req);
+
+        auto mgc = mg_connect_http(&m_mgr, event_handler, addr.toUtf8().data(), nullptr, nullptr);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    static void*
+    pthread_client_poll(void* udata)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto client = static_cast<Client*>(udata);
+        while (client->m_running)
+            mg_mgr_poll(&client->m_mgr, 200);
+
+        return nullptr;
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    static void
+    event_handler(mg_connection* mgc, int event, void* data)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto client = static_cast<Client*>(mgc->mgr->user_data);
+        switch(event)
+        {
+        case MG_EV_CONNECT:
+        {
+            break;
+        }
+        case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
+        {
+            client->connected();
+            break;
+        }
+        case MG_EV_WEBSOCKET_FRAME:
+        {
+            auto wm = static_cast<websocket_message*>(data);
+            break;
+        }
+        case MG_EV_HTTP_REPLY:
+        {
+            http_message* reply = static_cast<http_message*>(data);
+            mgc->flags != MG_F_CLOSE_IMMEDIATELY;
+
+            break;
+        }
+        }
 
     }
 
