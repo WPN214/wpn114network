@@ -24,11 +24,11 @@ Window
         // property binding case:
         // type will be deduced automatically, as well as the initial value of the node
         path: "/foo"
-        onValueReceived: console.log("/foo", value);
+        onValueChanged: console.log("/foo", value);
 
-        // server is registered as a singleton device, therefore, specifying the device here
+        // server is registered as a singleton device, therefore, specifying the target tree here
         // is not necessary
-        device: server
+        tree: server.tree()
     }
 
     WPN114.Node //---------------------------------------------------------------------------------
@@ -37,7 +37,7 @@ Window
         type: WPN114.Type.Int
         value: 214
 
-        onValueReceived: console.log("/foo/bar", value);
+        onValueChanged: console.log("/foo/bar", value);
     }
 
     WPN114.Node //---------------------------------------------------------------------------------

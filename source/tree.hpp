@@ -51,7 +51,7 @@ class Node : public QObject, public QQmlParserStatus, public QQmlPropertyValueSo
     Q_PROPERTY (QString path READ path WRITE set_path NOTIFY pathChanged)
 
     //---------------------------------------------------------------------------------------------
-    Q_PROPERTY (Type::Values READ type WRITE set_type NOTIFY typeChanged)
+    Q_PROPERTY(Type::Values type READ type WRITE set_type NOTIFY typeChanged)
 
     //---------------------------------------------------------------------------------------------
     Q_PROPERTY (QVariant value READ value WRITE set_value NOTIFY valueChanged)
@@ -95,7 +95,11 @@ public:
 
     //---------------------------------------------------------------------------------------------
     Node(Node& parent, QString name, Type::Values type) :
-        m_type(type), m_parent_node(&parent), m_name(name)
+      m_type            (type),
+      m_name            (name),
+      m_parent_node     (&parent),
+      m_tree            (parent.tree()),
+      m_path            (parent.path().append('/').append(name))
     //---------------------------------------------------------------------------------------------
     {
         // prevents qml from destroying nodes when referenced in javascript functions
@@ -127,13 +131,7 @@ public:
 
     //---------------------------------------------------------------------------------------------
     virtual void
-    componentComplete() override
-    //---------------------------------------------------------------------------------------------
-    {
-
-
-
-    }
+    componentComplete() override;
 
     //---------------------------------------------------------------------------------------------
     virtual void
@@ -167,7 +165,7 @@ public:
 
     //---------------------------------------------------------------------------------------------
     Q_SIGNAL void
-    valueChanged(QVariant new_value);
+    valueChanged(QVariant value);
 
     Q_SIGNAL void
     valueReceived(QVariant value);
@@ -306,9 +304,12 @@ public:
 
     //---------------------------------------------------------------------------------------------
     Node*
-    subnode(QString name, bool recursive = true)
+    subnode(QString name)
     //---------------------------------------------------------------------------------------------
     {
+        for (const auto& subnode : m_subnodes)
+             if (subnode->name() == name)
+                 return subnode;
         return nullptr;
     }
 
@@ -387,11 +388,12 @@ public:
     Tree()
     {
         m_root.set_path("/");
+        m_root.set_tree(this);
     }
 
     //---------------------------------------------------------------------------------------------
-    static Tree&
-    instance() { return *s_singleton; }
+    static Tree*
+    instance() { return s_singleton; }
 
     //---------------------------------------------------------------------------------------------
     Node*
@@ -411,21 +413,62 @@ public:
     }
 
     //---------------------------------------------------------------------------------------------
-    Node*
-    find_node(QString path)
+    void
+    link(Node* node)
     //---------------------------------------------------------------------------------------------
     {
-        return m_root.subnode(path, true);
+        auto parent = find_or_create(parent_path(node->path()));
+        parent->add_subnode(node);
     }
 
     //---------------------------------------------------------------------------------------------
     Node*
-    find_or_create_node(QString path)
+    find(QString path)
     //---------------------------------------------------------------------------------------------
     {
-        if (auto node = m_root.subnode(path, true))
-             return node;
-        else return m_root.create_subnode(path);
+        auto split = path.split('/');
+        split.removeFirst();
+
+        Node* target = &m_root;
+
+        for (auto& name : split) {
+            auto subnode = target->subnode(name);
+            if (subnode == nullptr)
+                 return nullptr;
+            else target = subnode;
+        }
+
+        return target;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    Node*
+    find_or_create(QString path)
+    //---------------------------------------------------------------------------------------------
+    {
+        auto split = path.split('/');
+        split.removeFirst();
+
+        Node* target = &m_root;
+
+        for (auto& name : split) {
+            auto subnode = target->subnode(name);
+            if (subnode == nullptr)
+                subnode = target->create_subnode(name);
+            target = subnode;
+        }
+
+        return target;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QString
+    parent_path(QString path)
+    //---------------------------------------------------------------------------------------------
+    {
+        auto split = path.split('/');
+        split.removeLast();
+        return split.join('/');
     }
 
     //---------------------------------------------------------------------------------------------
@@ -433,7 +476,7 @@ public:
     query(QString uri)
     //---------------------------------------------------------------------------------------------
     {
-        auto node = find_node(uri);
+        auto node = find(uri);
         if (!node)
             return QJsonObject();
         return node->to_json(true);

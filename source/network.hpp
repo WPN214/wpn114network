@@ -159,16 +159,14 @@ public:
         char addr[32];
         mg_sock_addr_to_str(&ws_connection->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_IP);
         m_host_ip = addr;
-
-        qDebug() << "new connection" << m_host_ip;
     }
 
     //---------------------------------------------------------------------------------------------
     Connection(Connection const& cp) :
-        m_ws_connection(cp.m_ws_connection),
-        m_udp_connection(cp.m_udp_connection),
-        m_udp_port(cp.m_udp_port),
-        m_host_ip(cp.m_host_ip) {}
+        m_ws_connection     (cp.m_ws_connection),
+        m_udp_connection    (cp.m_udp_connection),
+        m_udp_port          (cp.m_udp_port),
+        m_host_ip           (cp.m_host_ip) {}
 
     //---------------------------------------------------------------------------------------------
     virtual
@@ -179,10 +177,10 @@ public:
     operator=(Connection const& cp)
     //---------------------------------------------------------------------------------------------
     {
-        m_ws_connection = cp.m_ws_connection;
-        m_udp_connection = cp.m_udp_connection;
-        m_udp_port = cp.m_udp_port;
-        m_host_ip = cp.m_host_ip;
+        m_ws_connection     = cp.m_ws_connection;
+        m_udp_connection    = cp.m_udp_connection;
+        m_udp_port          = cp.m_udp_port;
+        m_host_ip           = cp.m_host_ip;
 
         return *this;
     }
@@ -313,11 +311,12 @@ class Server : public QObject, public QQmlParserStatus
 
 public:
 
+    //-------------------------------------------------------------------------------------------------
     Q_SIGNAL void
-    connection();
+    connection(QString address);
 
     Q_SIGNAL void
-    disconnection();
+    disconnection(QString address);
 
     Q_SIGNAL void
     oscMessageReceived(OSCMessage message);
@@ -600,6 +599,7 @@ public:
                        connection->recv_mbuf.len);
 
         OSCMessage msg(cdg);
+        emit oscMessageReceived(msg);
     }
 
     //-------------------------------------------------------------------------------------------------
