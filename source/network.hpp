@@ -15,18 +15,19 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QtDebug>
+#include <QQmlEngine>
 
-//---------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 template<typename _Valuetype> void
 from_stream(QVariantList& arglst, QDataStream& stream);
 
-//---------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 template<> void
 from_stream<QString>(QVariantList& arglist, QDataStream& stream);
 
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 struct OSCMessage
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 {
     QString
     m_method;
@@ -130,9 +131,35 @@ struct OSCMessage
 
 class Tree;
 
-//---------------------------------------------------------------------------------------------
+//=================================================================================================
+class Type : public QObject
+//=================================================================================================
+{
+    Q_OBJECT
+
+public:
+    enum Values
+    {
+        None        = 43,
+        Bool        = 1,
+        Int         = 2,
+        Float       = 38,
+        String      = 10,
+        List        = 9,
+        Vec2f       = 82,
+        Vec3f       = 83,
+        Vec4f       = 84,
+        Char        = 34,
+        Impulse     = 0,
+        File        = 11
+    };
+
+    Q_ENUM (Values)
+};
+
+//=================================================================================================
 class Node : public QObject, public QQmlParserStatus, public QQmlPropertyValueSource
-//---------------------------------------------------------------------------------------------
+//=================================================================================================
 {
     Q_OBJECT
 
@@ -146,10 +173,35 @@ class Node : public QObject, public QQmlParserStatus, public QQmlPropertyValueSo
     Q_PROPERTY (QString path READ path WRITE set_path NOTIFY pathChanged)
 
     //---------------------------------------------------------------------------------------------
+    Q_PROPERTY (Type::Values READ type WRITE set_type NOTIFY typeChanged)
+
+    //---------------------------------------------------------------------------------------------
     Q_PROPERTY (QVariant value READ value WRITE set_value NOTIFY valueChanged)
 
     //---------------------------------------------------------------------------------------------
     Q_PROPERTY (bool critical READ critical WRITE set_critical NOTIFY criticalChanged)
+
+    QString
+    m_name,
+    m_path;
+
+    Type::Values
+    m_type;
+
+    QVariant
+    m_value;
+
+    Node*
+    m_parent_node = nullptr;
+
+    Tree*
+    m_tree = nullptr;
+
+    QVector<Node*>
+    m_subnodes;
+
+    bool
+    m_critical = false;
 
 public:
 
@@ -161,11 +213,31 @@ public:
     }
 
     //---------------------------------------------------------------------------------------------
+    Node(Node& parent, QString name, Type::Values type) :
+        m_type(type), m_parent_node(&parent), m_name(name)
+    //---------------------------------------------------------------------------------------------
+    {
+        // prevents qml from destroying nodes when referenced in javascript functions
+        QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    static Node*
+    from_json(QJsonObject const& object)
+    //---------------------------------------------------------------------------------------------
+    {
+        auto node = new Node;
+        node->update(object);
+        return node;
+    }
+
+    //---------------------------------------------------------------------------------------------
     virtual
     ~Node() override
     //---------------------------------------------------------------------------------------------
     {
-
+        for (auto& subnode : m_subnodes)
+             delete subnode;
     }
 
     //---------------------------------------------------------------------------------------------
@@ -177,6 +249,7 @@ public:
     componentComplete() override
     //---------------------------------------------------------------------------------------------
     {
+
 
     }
 
@@ -192,11 +265,36 @@ public:
     QVariant
     value() const { return m_value; }
 
+    bool
+    critical() const { return m_critical; }
+
+    QString
+    name() const { return m_name; }
+
+    QString
+    path() const { return m_path; }
+
+    Type::Values
+    type() const { return m_type; }
+
+    Node*
+    parent_node() { return m_parent_node; }
+
+    //---------------------------------------------------------------------------------------------
     Q_SIGNAL void
     valueChanged(QVariant new_value);
 
     Q_SIGNAL void
     valueReceived(QVariant value);
+
+    Q_SIGNAL void
+    pathChanged();
+
+    Q_SIGNAL void
+    typeChanged();
+
+    Q_SIGNAL void
+    criticalChanged();
 
     //---------------------------------------------------------------------------------------------
     void
@@ -212,47 +310,75 @@ public:
     }
 
     //---------------------------------------------------------------------------------------------
-    QString
-    name() const { return m_name; }
-
     void
     set_name(QString name)
+    //---------------------------------------------------------------------------------------------
     {
         m_name = name;
     }
 
     //---------------------------------------------------------------------------------------------
-    QString
-    path() const { return m_path; }
-
-    Q_SIGNAL void
-    pathChanged();
-
     void
     set_path(QString path)
+    //---------------------------------------------------------------------------------------------
     {
         m_path = path;
     }
 
     //---------------------------------------------------------------------------------------------
-    Node*
-    parent_node() { return m_parent_node; }
+    void
+    set_type(Type::Values type)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_type = type;
+    }
 
+    //---------------------------------------------------------------------------------------------
+    void
+    set_type(QString type)
+    //---------------------------------------------------------------------------------------------
+    {
+        if (type == "f")
+            m_type = Type::Float;
+        else if (type == "T" || type == "F")
+            m_type = Type::Bool;
+        else if (type == "i")
+            m_type = Type::Int;
+        else if (type == "I")
+            m_type = Type::Impulse;
+        else if (type == "s")
+            m_type = Type::String;
+        else if (type == "ff")
+            m_type = Type::Vec2f;
+        else if (type == "fff")
+            m_type = Type::Vec3f;
+        else if (type == "ffff")
+            m_type = Type::Vec4f;
+        else if (type == "N")
+            m_type = Type::Impulse;
+        else m_type = Type::None;
+    }
+
+    //---------------------------------------------------------------------------------------------v
+    void
+    set_type(QMetaType::Type type)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_type = static_cast<Type::Values>(type);
+    }
+
+    //---------------------------------------------------------------------------------------------
     void
     set_parent_node(Node* node)
+    //---------------------------------------------------------------------------------------------
     {
         m_parent_node = node;
     }
 
     //---------------------------------------------------------------------------------------------
-    bool
-    critical() const { return m_critical; }
-
-    Q_SIGNAL void
-    criticalChanged();
-
     void
     set_critical(bool critical)
+    //---------------------------------------------------------------------------------------------
     {
         m_critical = critical;
     }
@@ -266,11 +392,8 @@ public:
     create_subnode(QString name)
     //---------------------------------------------------------------------------------------------
     {
-        Node* n = new Node;
-        n->set_name(name);
-        n->set_parent_node(this);
-        m_subnodes.push_back(n);
-        return n;
+        m_subnodes.push_back(new Node(*this, name, Type::None));
+        return m_subnodes.back();
     }
 
     //---------------------------------------------------------------------------------------------
@@ -317,44 +440,41 @@ public:
         return QJsonObject();
     }
 
-private:
+    //---------------------------------------------------------------------------------------------
+    void
+    update(QJsonObject object)
+    //---------------------------------------------------------------------------------------------
+    {
+        if (object.contains("FULL_PATH"))
+            m_path = object["FULL_PATH"].toString();
 
-    QString
-    m_name,
-    m_path;
+        if (object.contains("TYPE"))
+            set_type(object["TYPE"].toString());
 
-    QVariant
-    m_value;
+        if (object.contains("CONTENTS"))
+        {
+            auto contents = object["CONTENTS"].toObject();
 
-    Node*
-    m_parent_node = nullptr;
+            for (const auto& key : contents.keys()) {
+                auto node = Node::from_json(contents[key].toObject());
+                node->set_name(key);
+                add_subnode(node);
+            }
+        }
 
-    Tree*
-    m_tree = nullptr;
-
-    QVector<Node*>
-    m_subnodes;
-
-    bool
-    m_critical = false;
+        if (object.contains("VALUE"))
+            set_value(object["VALUE"].toVariant());
+    }
 };
 
-//---------------------------------------------------------------------------------------------
+//=================================================================================================
 class Tree : public QObject
-//---------------------------------------------------------------------------------------------
+//=================================================================================================
 {
     Q_OBJECT
 
     //---------------------------------------------------------------------------------------------
     Q_PROPERTY (bool singleton READ singleton WRITE set_singleton)
-
-    //---------------------------------------------------------------------------------------------
-    Q_PROPERTY (bool exposed READ exposed WRITE set_exposed)
-
-    //---------------------------------------------------------------------------------------------
-    Q_PROPERTY (int tcp READ tcp WRITE set_tcp)
-
-    Q_PROPERTY (int udp READ udp WRITE set_udp)
 
     //---------------------------------------------------------------------------------------------
     Q_PROPERTY (Node* root READ root)
@@ -365,9 +485,6 @@ class Tree : public QObject
 
     Node
     m_root;
-
-    bool
-    m_exposed = false;
 
     static Tree*
     s_singleton;
@@ -402,42 +519,6 @@ public:
     }
 
     //---------------------------------------------------------------------------------------------
-    bool
-    exposed() const { return m_exposed; }
-
-    void
-    set_exposed(bool exposed)
-    {
-        m_exposed = exposed;
-    }
-
-    //---------------------------------------------------------------------------------------------
-    uint16_t
-    tcp() const
-    {
-        return 0;
-    }
-
-    void
-    set_tcp(uint16_t)
-    {
-
-    }
-
-    //---------------------------------------------------------------------------------------------
-    uint16_t
-    udp() const
-    {
-        return 0;
-    }
-
-    void
-    set_udp(uint16_t)
-    {
-
-    }
-
-    //---------------------------------------------------------------------------------------------
     Node*
     find_node(QString path)
     //---------------------------------------------------------------------------------------------
@@ -463,14 +544,13 @@ public:
         auto node = find_node(uri);
         if (!node)
             return QJsonObject();
-
         return node->to_json(true);
     }
 };
 
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 class Connection : public QObject
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 {
     Q_OBJECT
 
@@ -602,9 +682,9 @@ ServerExtensions =
     { "ECHO", false }
 };
 
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 class Server : public QObject, public QQmlParserStatus
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 {
     Q_OBJECT
 
@@ -1012,9 +1092,9 @@ public:
     }
 };
 
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 class Client : public QObject
-//-------------------------------------------------------------------------------------------------
+//=================================================================================================
 {
     Q_OBJECT
 

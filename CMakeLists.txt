@@ -4,7 +4,7 @@ project(wpn114network-qml LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_CXX_LINK_FLAGS)
+set(CMAKE_AUTORCC ON)
 
 find_package(Qt5 REQUIRED COMPONENTS Quick Core Qml)
 
@@ -15,6 +15,9 @@ set(WPN114NETWORK_QML_SOURCES
     )
 
 add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
+add_subdirectory(examples)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:QT_QML_DEBUG>)
 target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml -lmongoose -lavahi-common -lavahi-client)
 
 if(APPLE)
