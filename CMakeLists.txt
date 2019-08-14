@@ -12,6 +12,8 @@ set(WPN114NETWORK_QML_SOURCES
     qml_plugin.cpp
     source/network.hpp
     source/network.cpp
+    source/tree.hpp
+    source/tree.cpp
     )
 
 add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
