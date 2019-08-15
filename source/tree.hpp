@@ -1,11 +1,14 @@
 #pragma once
 
 #include <QObject>
+#include <QQmlEngine>
 #include <QQmlPropertyValueSource>
 #include <QQmlParserStatus>
+#include <QQmlProperty>
 #include <QVariant>
-#include <QQmlEngine>
+
 #include <QJsonObject>
+#include <QJsonArray>
 
 class Tree;
 
@@ -84,6 +87,9 @@ class Node : public QObject, public QQmlParserStatus, public QQmlPropertyValueSo
     bool
     m_critical = false;
 
+    QQmlProperty
+    m_target;
+
 public:
 
     //---------------------------------------------------------------------------------------------
@@ -138,7 +144,24 @@ public:
     setTarget(const QQmlProperty& target) override
     //---------------------------------------------------------------------------------------------
     {
+        m_target = target;
+        set_type(static_cast<QMetaType::Type>(target.propertyType()));
+        m_value = target.read();
+        m_target.connectNotifySignal(this, SLOT(on_property_changed()));
+    }
 
+    //---------------------------------------------------------------------------------------------
+    Q_SLOT void
+    on_property_changed()
+    //---------------------------------------------------------------------------------------------
+    {
+        auto value = m_target.read();
+        valueReceived(value);
+
+        if (value != m_value) {
+            valueChanged(value);
+            m_value = value;
+        }
     }
 
     //---------------------------------------------------------------------------------------------
@@ -162,6 +185,50 @@ public:
 
     Tree*
     tree() { return m_tree; }
+
+    //---------------------------------------------------------------------------------------------
+    QString
+    typetag() const
+    //---------------------------------------------------------------------------------------------
+    {
+        switch (m_type)
+        {
+        case Type::Bool:        return "T";
+        case Type::Char:        return "c";
+        case Type::Float:       return "f";
+        case Type::Int:         return "i";
+        case Type::List:        return "l";
+        case Type::None:        return "N";
+        case Type::Impulse:     return "I";
+        case Type::String:      return "s";
+        case Type::Vec2f:       return "ff";
+        case Type::Vec3f:       return "fff";
+        case Type::Vec4f:       return "ffff";
+        default:                return "";
+        }
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QJsonValue
+    json_value() const
+    //---------------------------------------------------------------------------------------------
+    {
+        switch (m_type)
+        {
+        case Type::Bool:        return m_value.toBool();
+        case Type::Char:        return m_value.toString();
+        case Type::Float:       return m_value.toFloat();
+        case Type::Int:         return m_value.toInt();
+        case Type::String:      return m_value.toString();
+        case Type::Vec2f:
+        case Type::Vec3f:
+        case Type::Vec4f:
+        case Type::List:        return QJsonArray::fromVariantList(m_value.toList());
+        case Type::None:
+        case Type::Impulse:
+        default:                return QJsonValue();
+        }
+    }
 
     //---------------------------------------------------------------------------------------------
     Q_SIGNAL void
@@ -326,11 +393,35 @@ public:
     has_subnode(Node* subnode) { return m_subnodes.contains(subnode); }
 
     //---------------------------------------------------------------------------------------------
-    QJsonObject const
-    to_json(bool recursive = true)
+    QJsonObject
+    attributes_json() const
     //---------------------------------------------------------------------------------------------
     {
-        return QJsonObject();
+        QJsonObject attributes;
+        attributes["FULL_PATH"] = m_path;
+
+        if (m_type == Type::None)
+            return attributes;
+
+        attributes["TYPE"]      = typetag();
+        attributes["CRITICAL"]  = m_critical;
+        attributes["VALUE"]     = json_value();
+
+        return attributes;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QJsonObject const
+    to_json() const
+    //---------------------------------------------------------------------------------------------
+    {
+        QJsonObject contents;
+        for (auto& subnode : m_subnodes)
+            contents.insert(subnode->name(), subnode->to_json());
+
+        auto attributes = attributes_json();
+        attributes["CONTENTS"] = contents;
+        return attributes;
     }
 
     //---------------------------------------------------------------------------------------------
@@ -346,8 +437,8 @@ public:
 
         if (object.contains("CONTENTS"))
         {
+            // recursively parse and build children nodes
             auto contents = object["CONTENTS"].toObject();
-
             for (const auto& key : contents.keys()) {
                 auto node = Node::from_json(contents[key].toObject());
                 node->set_name(key);
@@ -478,7 +569,7 @@ public:
     {
         auto node = find(uri);
         if (!node)
-            return QJsonObject();
-        return node->to_json(true);
+             return QJsonObject();
+        else return node->to_json();
     }
 };
