@@ -17,6 +17,8 @@
 #include <QtDebug>
 #include <QQmlEngine>
 
+#include <source/tree.hpp>
+
 //-------------------------------------------------------------------------------------------------
 template<typename _Valuetype> void
 from_stream(QVariantList& arglst, QDataStream& stream);
@@ -107,12 +109,12 @@ struct OSCMessage
 
         switch(argument.type())
         {
-        case QVariant::Bool: stream << argument.value<bool>(); break;
-        case QVariant::Int: stream << argument.value<int>(); break;
-        case QVariant::Double: stream << argument.value<float>(); break;
-        case QVariant::Vector2D: stream << argument.value<QVector2D>(); break;
-        case QVariant::Vector3D: stream << argument.value<QVector3D>(); break;
-        case QVariant::Vector4D: stream << argument.value<QVector4D>(); break;
+        case QVariant::Bool:        stream << argument.value<bool>(); break;
+        case QVariant::Int:         stream << argument.value<int>(); break;
+        case QVariant::Double:      stream << argument.value<float>(); break;
+        case QVariant::Vector2D:    stream << argument.value<QVector2D>(); break;
+        case QVariant::Vector3D:    stream << argument.value<QVector3D>(); break;
+        case QVariant::Vector4D:    stream << argument.value<QVector4D>(); break;
 
         case QVariant::String: {
             QByteArray str = argument.toString().toUtf8();
@@ -186,6 +188,10 @@ public:
     }
 
     //---------------------------------------------------------------------------------------------
+    mg_connection*
+    mgc() { return m_ws_connection; }
+
+    //---------------------------------------------------------------------------------------------
     void
     set_udp(uint16_t udp)
     //---------------------------------------------------------------------------------------------
@@ -194,6 +200,15 @@ public:
 
         // TODO: fetch host from ws connection
         m_udp_connection = mg_connect(nullptr, nullptr, nullptr);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_SLOT void
+    on_value_changed(QVariant value)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto node = qobject_cast<Node*>(QObject::sender());
+        writeOSC(node->path(), value.toList(), node->critical());
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -260,8 +275,6 @@ ServerExtensions =
     { "HTML", false },
     { "ECHO", false }
 };
-
-#include <source/tree.hpp>
 
 //=================================================================================================
 class Server : public QObject, public QQmlParserStatus
@@ -425,15 +438,11 @@ public:
         case AVAHI_ENTRY_GROUP_ESTABLISHED:
             break;
         case AVAHI_ENTRY_GROUP_COLLISION:
-        {
             fprintf(stderr, "[avahi] entry group collision\n");
             break;
-        }
         case AVAHI_ENTRY_GROUP_FAILURE:
-        {
             fprintf(stderr, "[avahi] entry group failure\n");
             break;
-        }
         }
     }
 
@@ -452,10 +461,9 @@ public:
         case AVAHI_CLIENT_S_RUNNING:
         {
             fprintf(stderr, "[avahi] client running\n");
-
             auto group = server->m_avgroup;
-            if(!group)
-            {
+
+            if(!group) {
                 fprintf(stderr, "[avahi] creating entry group\n");
                 group  = avahi_entry_group_new(client, avahi_group_callback, server);
                 server->m_avgroup = group;
@@ -485,15 +493,11 @@ public:
             break;
         }
         case AVAHI_CLIENT_FAILURE:
-        {
             fprintf(stderr, "[avahi] client failure");
             break;
-        }
         case AVAHI_CLIENT_S_COLLISION:
-        {
             fprintf(stderr, "[avahi] client collision");
             break;
-        }
         }
     }
 
@@ -584,10 +588,46 @@ public:
 
     //-------------------------------------------------------------------------------------------------
     Q_INVOKABLE void
-    on_websocket_frame(mg_connection* connection, websocket_message* message)
+    on_websocket_frame(mg_connection* mgc, websocket_message* message)
     //-------------------------------------------------------------------------------------------------
     {
         QByteArray frame((const char*)message->data, message->size);
+
+        if (message->flags & WEBSOCKET_OP_TEXT) {
+            // it would have to be json
+            auto doc = QJsonDocument::fromJson(frame);
+            auto obj = doc.object();
+
+            if (!obj.contains("COMMAND"))
+                return;
+
+            auto command = obj["COMMAND"].toString();
+
+            if (command == "LISTEN" || command == "IGNORE")
+            {
+                auto target = obj["DATA"].toString();
+
+                if (auto node = m_tree.find(target))
+                {
+                    Connection* sender = nullptr;
+                    for (auto& connection : m_connections)
+                        if (connection.mgc() == mgc)
+                            sender = &connection;
+
+                    if (command == "LISTEN")
+                         QObject::connect(node, &Node::valueChanged, sender, &Connection::on_value_changed);
+                    else QObject::disconnect(node, &Node::valueChanged, sender, &Connection::on_value_changed);
+                }
+            }
+        }
+
+        else if (message->flags & WEBSOCKET_OP_BINARY) {
+            // it would have to be OSC
+            OSCMessage oscmg(frame);
+
+            if (auto node = m_tree.find(oscmg.m_method))
+                node->set_value(oscmg.m_arguments);
+        }
     }
 
     //-------------------------------------------------------------------------------------------------
