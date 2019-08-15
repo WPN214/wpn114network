@@ -233,6 +233,15 @@ public:
         auto utf8 = text.toUtf8();
         mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_TEXT, utf8.data(), utf8.count());
     }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    writeJson(QJsonObject object)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto doc = QJsonDocument(object).toJson(QJsonDocument::Compact);
+        mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_TEXT, doc.data(), doc.count());
+    }
 };
 
 Q_DECLARE_METATYPE(mg_connection*)
@@ -591,7 +600,8 @@ public:
     on_websocket_frame(mg_connection* mgc, websocket_message* message)
     //-------------------------------------------------------------------------------------------------
     {
-        QByteArray frame((const char*)message->data, message->size);
+        QByteArray frame(reinterpret_cast<const char*>(message->data),
+                         message->size);
 
         if (message->flags & WEBSOCKET_OP_TEXT) {
             // it would have to be json
@@ -603,21 +613,25 @@ public:
 
             auto command = obj["COMMAND"].toString();
 
+            Connection* sender = nullptr;
+            for (auto& connection : m_connections)
+                if (connection.mgc() == mgc)
+                    sender = &connection;
+
             if (command == "LISTEN" || command == "IGNORE")
             {
                 auto target = obj["DATA"].toString();
 
-                if (auto node = m_tree.find(target))
-                {
-                    Connection* sender = nullptr;
-                    for (auto& connection : m_connections)
-                        if (connection.mgc() == mgc)
-                            sender = &connection;
-
+                if (auto node = m_tree.find(target)) {
                     if (command == "LISTEN")
                          QObject::connect(node, &Node::valueChanged, sender, &Connection::on_value_changed);
                     else QObject::disconnect(node, &Node::valueChanged, sender, &Connection::on_value_changed);
                 }
+            }
+
+            else if (command == "START_OSC_STREAMING") {
+                uint16_t port = obj["DATA"].toObject()["LOCAL_SERVER_PORT"].toInt();
+                sender->set_udp(port);
             }
         }
 
@@ -678,6 +692,39 @@ public:
             mg_send_head(connection, 200, ba.count(), "Content-Type: application/json; charset=utf-8");
             mg_send(connection, ba.data(), ba.count());
         }
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_SLOT void
+    on_node_added(Node* node)
+    //-------------------------------------------------------------------------------------------------
+    {
+        if (m_connections.empty())
+            return;
+
+        QJsonObject command, data;
+        command.insert("COMMAND", "PATH_ADDED");
+        data.insert(node->name(), node->to_json());
+        command.insert("DATA", data);
+
+        for (auto& connection : m_connections)
+            connection.writeJson(command);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_SLOT void
+    on_node_removed(Node* node)
+    //-------------------------------------------------------------------------------------------------
+    {
+        if (m_connections.empty())
+            return;
+
+        QJsonObject command;
+        command.insert("COMMAND", "PATH_REMOVED");
+        command.insert("DATA", node->path());
+
+        for (auto& connection : m_connections)
+            connection.writeJson(command);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -755,6 +802,9 @@ class Client : public QObject
 
     bool
     m_running = false;
+
+    Tree
+    m_tree;
 
 public:
 
@@ -843,25 +893,114 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    on_connected()
+    // send host info request as well as namespace query
+    //-------------------------------------------------------------------------------------------------
+    {
+        request("/?HOST_INFO");
+        request("/");
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    parse_json(QByteArray const& frame)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto object = QJsonDocument::fromJson(frame).object();
+
+        if (object.contains("COMMAND"))
+        {
+            auto type = object["COMMAND"].toString();
+            auto data = object["DATA"].toObject();
+
+            if (type == "PATH_ADDED") {
+                for (auto& key : data.keys()) {
+                    auto objn = data[key].toObject();
+                    auto node = m_tree.find_or_create(objn["FULL_PATH"].toString());
+                    node->update(objn);
+                }
+            }
+
+            else if (type == "PATH_REMOVED") {
+
+            }
+        }
+
+        else if (object.contains("FULL_PATH"))
+        {
+
+        }
+
+        else if (object.contains("OSC_PORT"))
+        {
+
+        }
+
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    parse_osc(QByteArray const& data)
+    //-------------------------------------------------------------------------------------------------
+    {
+        OSCMessage msg(data);
+        if (auto node = m_tree.find(msg.m_method))
+            node->set_value(msg.m_arguments);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    on_http_reply(http_message* reply)
+    //-------------------------------------------------------------------------------------------------
+    {
+        QByteArray body(reply->body.p, reply->body.len);
+        parse_json(body);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    on_websocket_frame(websocket_message* message)
+    // for commands/osc messages
+    //-------------------------------------------------------------------------------------------------
+    {
+        QByteArray frame(reinterpret_cast<const char*>(message->data), message->size);
+
+        if (message->flags & WEBSOCKET_OP_TEXT)
+            parse_json(frame);
+
+        else if (message->flags & WEBSOCKET_OP_BINARY)
+            parse_osc(frame);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    on_udp_datagram(mg_connection* connection)
+    //-------------------------------------------------------------------------------------------------
+    {
+        QByteArray cdg(connection->recv_mbuf.buf,
+                       connection->recv_mbuf.len);
+        parse_osc(cdg);
+    }
+
+    //-------------------------------------------------------------------------------------------------
     static void
     event_handler(mg_connection* mgc, int event, void* data)
     //-------------------------------------------------------------------------------------------------
     {
         auto client = static_cast<Client*>(mgc->mgr->user_data);
+
         switch(event)
         {
-        case MG_EV_CONNECT:
-        {
-            break;
-        }
         case MG_EV_WEBSOCKET_HANDSHAKE_DONE:
-        {
-            client->connected();
+            QMetaObject::invokeMethod(client, "on_connected", Qt::QueuedConnection);
             break;
-        }
         case MG_EV_WEBSOCKET_FRAME:
         {
             auto wm = static_cast<websocket_message*>(data);
+            QMetaObject::invokeMethod(client, "on_websocket_frame",
+                Qt::QueuedConnection,
+                Q_ARG(websocket_message*, wm));
             break;
         }
         case MG_EV_HTTP_REPLY:
@@ -869,10 +1008,11 @@ public:
             http_message* reply = static_cast<http_message*>(data);
             mgc->flags != MG_F_CLOSE_IMMEDIATELY;
 
+            QMetaObject::invokeMethod(client, "on_http_reply",
+                Qt::QueuedConnection,
+                Q_ARG(http_message*, reply));
             break;
         }
         }
-
     }
-
 };

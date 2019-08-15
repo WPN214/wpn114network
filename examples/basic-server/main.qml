@@ -26,8 +26,8 @@ Window
         path: "/foo"
         onValueChanged: console.log("/foo", value);
 
-        // server is registered as a singleton device, therefore, specifying the target tree here
-        // is not necessary
+        // server is registered as a singleton device,
+        // therefore, specifying the target tree here is not necessary
         tree: server.tree()
     }
 
