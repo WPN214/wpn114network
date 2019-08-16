@@ -143,11 +143,15 @@ class Connection : public QObject
     mg_connection*
     m_ws_connection = nullptr;
 
+    mg_mgr
+    m_mgr;
+
     uint16_t
     m_udp_port = 0;
 
     QString
-    m_host_ip;
+    m_host_ip,
+    m_host_udp;
 
 public:
 
@@ -197,9 +201,12 @@ public:
     //---------------------------------------------------------------------------------------------
     {
         m_udp_port = udp;
+        m_host_udp = m_host_ip;
+        m_host_udp.prepend("udp://");
+        m_host_udp.append(":");
+        m_host_udp.append(QString::number(m_udp_port));
 
-        // TODO: fetch host from ws connection
-        m_udp_connection = mg_connect(nullptr, nullptr, nullptr);
+        mg_mgr_init(&m_mgr, this);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -219,10 +226,13 @@ public:
         OSCMessage msg(method, arguments);
         auto b_arr = msg.encode();
 
-        if (critical)
+        if (critical) {
              mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_BINARY,
              b_arr.data(), b_arr.count());
-        else mg_send(m_udp_connection, b_arr.data(), b_arr.count());
+        } else {
+            m_udp_connection = mg_connect(&m_mgr, m_host_udp.toStdString().c_str(), nullptr);
+            mg_send(m_udp_connection, b_arr.data(), b_arr.count());
+        }
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -603,13 +613,11 @@ public:
         QByteArray frame(reinterpret_cast<const char*>(message->data),
                          message->size);
 
-        if (message->flags & WEBSOCKET_OP_TEXT) {
+        if (message->flags & WEBSOCKET_OP_TEXT)
+        {
             // it would have to be json
             auto doc = QJsonDocument::fromJson(frame);
             auto obj = doc.object();
-
-            if (!obj.contains("COMMAND"))
-                return;
 
             auto command = obj["COMMAND"].toString();
 
@@ -785,7 +793,7 @@ class Client : public QObject
     Q_PROPERTY (QString host READ host WRITE set_host)
     Q_PROPERTY (int port READ port WRITE set_port)
 
-    mg_connection*
+    Connection
     m_connection;
 
     pthread_t
@@ -819,6 +827,7 @@ public:
     //-------------------------------------------------------------------------------------------------
     {
         mg_mgr_init(&m_mgr, this);
+        mg_bind(&m_mgr, "udp://1234", event_handler);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -851,7 +860,7 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    void
+    Q_INVOKABLE void
     connect()
     //-------------------------------------------------------------------------------------------------
     {
@@ -860,15 +869,14 @@ public:
         ws_addr.append(":");
         ws_addr.append(QString::number(m_port));
 
-        m_connection = mg_connect_ws(&m_mgr, event_handler, ws_addr.toStdString().c_str(), nullptr, nullptr);
-        assert(m_connection);
+        m_connection = mg_connect_ws(&m_mgr, event_handler, ws_addr.toStdString().c_str(), nullptr, nullptr);     
 
         m_running = true;
         pthread_create(&m_thread, nullptr, pthread_client_poll, this);
     }
 
     //-------------------------------------------------------------------------------------------------
-    void
+    Q_INVOKABLE void
     request(QString req)
     //-------------------------------------------------------------------------------------------------
     {
@@ -878,6 +886,17 @@ public:
         addr.append(req);
 
         auto mgc = mg_connect_http(&m_mgr, event_handler, addr.toUtf8().data(), nullptr, nullptr);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    listen(QString uri, bool on = true)
+    //-------------------------------------------------------------------------------------------------
+    {
+        QJsonObject command;
+        command["COMMAND"] = on ? "LISTEN" : "IGNORE";
+        command["DATA"] = uri;
+        m_connection.writeJson(command);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -934,7 +953,16 @@ public:
 
         else if (object.contains("OSC_PORT"))
         {
+            m_connection.set_udp(object["OSC_PORT"].toInt());
 
+            QJsonObject command, data;
+
+            command.insert  ("COMMAND", "START_OSC_STREAMING");
+            data.insert     ("LOCAL_SERVER_PORT", 1234);
+            data.insert     ("LOCAL_SENDER_PORT", 0);
+            command.insert  ("DATA", data);
+
+            m_connection.writeJson(command);
         }
 
     }
