@@ -65,9 +65,12 @@ class Node : public QObject, public QQmlParserStatus, public QQmlPropertyValueSo
     //-------------------------------------------------------------------------------------------------
     Q_PROPERTY (Tree* tree READ tree WRITE set_tree)
 
+protected:
+
     QString
     m_name,
-    m_path;
+    m_path,
+    m_extended_type;
 
     Type::Values
     m_type;
@@ -448,6 +451,347 @@ public:
 
         if (object.contains("VALUE"))
             set_value(object["VALUE"].toVariant());
+    }
+};
+
+#include <QFile>
+
+//=================================================================================================
+class File : public Node
+//=================================================================================================
+{
+    Q_OBJECT
+
+    Q_PROPERTY (QString file READ file WRITE set_file)
+
+    QFile*
+    m_file = nullptr;
+
+    QByteArray
+    m_data;
+
+    QString
+    m_file_path;
+
+public:
+
+    //---------------------------------------------------------------------------------------------
+    File()
+    //---------------------------------------------------------------------------------------------
+    {
+        m_type = Type::File;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QString
+    file() const { return m_file_path; }
+
+    QByteArray
+    data() const { return m_data; }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_file(QString path)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_file_path = path;
+        m_file = new QFile(path, this);
+
+        if (path.endsWith(".qml")) {
+            m_file->open(QIODevice::ReadOnly | QIODevice::Text);
+            m_data = m_file->readAll();
+        }
+    }
+};
+
+#include <QDir>
+
+//=================================================================================================
+class Directory : public Node
+//=================================================================================================
+{
+    Q_OBJECT
+
+    Q_PROPERTY (QString target READ target WRITE set_target)
+    Q_PROPERTY (QString extensions READ extensions WRITE set_extensions)
+    Q_PROPERTY (QStringList filters READ filters WRITE set_filters)
+    Q_PROPERTY (bool recursive READ recursive WRITE set_recursive)
+
+    QStringList
+    m_filters;
+
+    bool
+    m_recursive;
+
+    QString
+    m_directory_path,
+    m_extensions;
+
+public:
+
+    //---------------------------------------------------------------------------------------------
+    Directory()
+    //---------------------------------------------------------------------------------------------
+    {
+        m_type = Type::List;
+        m_extended_type = "directory";
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QString
+    target() const { return m_directory_path; }
+
+    QString
+    extensions() const { return m_extensions; }
+
+    QStringList
+    filters() const { return m_filters; }
+
+    bool
+    recursive() const { return m_recursive; }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_target(QString path)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_directory_path = path;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_extensions(QString extensions)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_extensions = extensions;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_filters(QStringList filters)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_filters = filters;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_recursive(bool recursive)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_recursive = recursive;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    parse_directory(QDir directory)
+    //---------------------------------------------------------------------------------------------
+    {
+        set_value(directory.entryList());
+
+        for (const auto& file : directory.entryList()) {
+            auto node = new File;
+            node->set_name(file);
+            node->set_file(directory.path().append("/").append(file));
+            add_subnode(node);
+        }
+
+        if (m_recursive)
+        {
+            directory.setNameFilters(QStringList{});
+            directory.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+
+            for (const auto& subdirectory : directory.entryList()) {
+                auto node = new Directory;
+                node->set_name(subdirectory);
+                node->set_recursive(true);
+                node->set_filters(m_filters);
+                node->set_target(directory.path().append("/").append(subdirectory));
+                add_subnode(node);
+
+                node->componentComplete();
+            }
+        }
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual void
+    componentComplete() override
+    //---------------------------------------------------------------------------------------------
+    {
+        Node::componentComplete();
+
+        QDir directory(m_directory_path);
+        directory.setNameFilters(m_filters);
+        parse_directory(directory);
+    }
+};
+
+#include <QQueue>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QStandardPaths>
+
+//=================================================================================================
+class MirrorDirectory : public Node
+//=================================================================================================
+{
+    Q_OBJECT
+
+    Q_PROPERTY (bool recursive READ recursive WRITE set_recursive)
+    Q_PROPERTY (QString destination READ destination WRITE set_destination)
+
+    bool
+    m_recursive = true;
+
+    QString
+    m_destination,
+    m_absolute_path;
+
+    QStringList
+    m_downloads;
+
+    QVector<MirrorDirectory*>
+    m_children_directories;
+
+    QNetworkAccessManager
+    m_netaccess;
+
+    QQueue<QUrl>
+    m_queue;
+
+    QFile
+    m_output;
+
+    QNetworkReply*
+    m_current_download = nullptr;
+
+public:
+
+    //---------------------------------------------------------------------------------------------
+    MirrorDirectory()
+    //---------------------------------------------------------------------------------------------
+    {
+        // update downloads whenever node value is changed
+        QObject::connect(this, &Node::valueChanged, this, &MirrorDirectory::on_file_list_changed);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    bool
+    recursive() const { return m_recursive; }
+
+    QString
+    destination() const { return m_destination; }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_recursive(bool recursive)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_recursive = recursive;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_destination(QString destination)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_destination = destination;
+        m_absolute_path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                         .append(destination);
+
+        if (!QDir(m_absolute_path).exists())
+            QDir().mkpath(m_absolute_path);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    Q_SIGNAL void
+    complete();
+
+
+protected slots:
+
+    //---------------------------------------------------------------------------------------------
+    QUrl
+    to_url(QString file)
+    //---------------------------------------------------------------------------------------------
+    {
+        // we'd have to get client url somehow
+        // TODO!
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    on_file_list_changed(QVariant vlist)
+    //---------------------------------------------------------------------------------------------
+    {
+        if (m_destination.isNull())
+            set_destination(m_path);
+
+        for (const auto& file : vlist.toList())
+             m_downloads.append(file.toString());
+
+        for (const auto& file : m_downloads)
+             m_queue.enqueue(to_url(file));
+
+        next();
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    next()
+    //---------------------------------------------------------------------------------------------
+    {
+        if (m_queue.isEmpty()) {
+            emit complete();
+            return;
+        }
+
+        auto path = m_downloads.first().prepend("/").prepend(m_absolute_path);
+        m_output.setFileName(path);
+
+        if (!m_output.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            qDebug() << "error opening file for writing";
+            qDebug() << m_path;
+            qDebug() << m_output.errorString();
+        }
+
+        qDebug() << "[Directory] Downloading file:"
+                 << m_downloads.first();
+
+        auto url = m_queue.dequeue();
+        QNetworkRequest request(url);
+        m_current_download = m_netaccess.get(request);
+
+        QObject::connect(m_current_download, &QNetworkReply::readyRead, this, &MirrorDirectory::on_ready_read);
+        QObject::connect(m_current_download, &QNetworkReply::finished, this, &MirrorDirectory::on_complete);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    on_ready_read()
+    //---------------------------------------------------------------------------------------------
+    {
+        auto read = m_current_download->readAll();
+        m_output.write(read);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    on_complete()
+    //---------------------------------------------------------------------------------------------
+    {
+        m_output.close();
+        QObject::disconnect(m_current_download, &QNetworkReply::readyRead, this, &MirrorDirectory::on_ready_read);
+        QObject::disconnect(m_current_download, &QNetworkReply::finished, this, &MirrorDirectory::on_complete);
+
+        if  (m_current_download->error())
+             qDebug() << "[Directory] Error:" << m_current_download->errorString();
+        else qDebug() << "[Directory] File download complete:" << m_downloads.first();
+
+        m_current_download->deleteLater();
+        m_downloads.removeFirst();
+        next();
     }
 };
 

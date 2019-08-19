@@ -890,11 +890,22 @@ public:
 
     //-------------------------------------------------------------------------------------------------
     Q_INVOKABLE void
-    listen(QString uri, bool on = true)
+    listen(QString uri)
     //-------------------------------------------------------------------------------------------------
     {
         QJsonObject command;
-        command["COMMAND"] = on ? "LISTEN" : "IGNORE";
+        command["COMMAND"] = "LISTEN";
+        command["DATA"] = uri;
+        m_connection.writeJson(command);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    ignore(QString uri)
+    //-------------------------------------------------------------------------------------------------
+    {
+        QJsonObject command;
+        command["COMMAND"] = "IGNORE";
         command["DATA"] = uri;
         m_connection.writeJson(command);
     }
@@ -962,7 +973,8 @@ public:
             data.insert     ("LOCAL_SENDER_PORT", 0);
             command.insert  ("DATA", data);
 
-            m_connection.writeJson(command);
+            m_connection.writeJson(command);            
+            emit connected();
         }
 
     }
