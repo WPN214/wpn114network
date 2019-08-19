@@ -640,13 +640,15 @@ class MirrorDirectory : public Node
 
     Q_PROPERTY (bool recursive READ recursive WRITE set_recursive)
     Q_PROPERTY (QString destination READ destination WRITE set_destination)
+    Q_PROPERTY (QString host READ host WRITE set_host)
 
     bool
     m_recursive = true;
 
     QString
     m_destination,
-    m_absolute_path;
+    m_absolute_path,
+    m_host;
 
     QStringList
     m_downloads;
@@ -683,6 +685,9 @@ public:
     QString
     destination() const { return m_destination; }
 
+    QString
+    host() const { return m_host; }
+
     //---------------------------------------------------------------------------------------------
     void
     set_recursive(bool recursive)
@@ -705,6 +710,14 @@ public:
     }
 
     //---------------------------------------------------------------------------------------------
+    void
+    set_host(QString host)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_host = host;
+    }
+
+    //---------------------------------------------------------------------------------------------
     Q_SIGNAL void
     complete();
 
@@ -716,8 +729,8 @@ protected slots:
     to_url(QString file)
     //---------------------------------------------------------------------------------------------
     {
-        // we'd have to get client url somehow
-        // TODO!
+        file.prepend("/").prepend(m_destination).prepend(m_host);
+        return QUrl(file);
     }
 
     //---------------------------------------------------------------------------------------------
