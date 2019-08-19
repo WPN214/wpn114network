@@ -189,6 +189,20 @@ public:
     Tree*
     tree() { return m_tree; }
 
+    int
+    nsubnodes() const { return m_subnodes.count(); }
+
+    //---------------------------------------------------------------------------------------------
+    int
+    index() const
+    //---------------------------------------------------------------------------------------------
+    {
+        for (int n = 0; n < m_parent_node->nsubnodes(); ++n)
+            if (m_parent_node->subnode(n) == this)
+                return n;
+        return -1;
+    }
+
     //---------------------------------------------------------------------------------------------
     QString
     typetag() const
@@ -936,5 +950,169 @@ public:
         if (!node)
              return QJsonObject();
         else return node->to_json();
+    }
+};
+
+#include <QAbstractItemModel>
+#include <QHash>
+
+//=================================================================================================
+class TreeModel : public QAbstractItemModel
+//=================================================================================================
+{
+    Q_OBJECT
+
+    Node*
+    m_root_node = nullptr;
+
+public:
+
+    //---------------------------------------------------------------------------------------------
+    TreeModel() : QAbstractItemModel() {}
+
+    //---------------------------------------------------------------------------------------------
+    enum Roles
+    //---------------------------------------------------------------------------------------------
+    {
+        NodeName    = Qt::UserRole+10,
+        NodeType    = Qt::UserRole+11,
+        NodeValue   = Qt::UserRole+12
+    };
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_root(Node* node)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_root_node = node;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    Q_INVOKABLE Node*
+    get(QModelIndex const& index)
+    //---------------------------------------------------------------------------------------------
+    {
+        return static_cast<Node*>(index.internalPointer());
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual QHash<int, QByteArray>
+    roleNames() const override
+    //---------------------------------------------------------------------------------------------
+    {
+        QHash<int, QByteArray> roles;
+
+        roles[NodeName]  = "NodeName";
+        roles[NodeValue] = "NodeValue";
+        return roles;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual int
+    columnCount(const QModelIndex &parent = QModelIndex()) const override { return 2; }
+
+    //---------------------------------------------------------------------------------------------
+    virtual int
+    rowCount(const QModelIndex &parent = QModelIndex()) const override
+    //---------------------------------------------------------------------------------------------
+    {
+        Node* parent_node;
+
+        if (!parent.isValid())
+             parent_node = m_root_node;
+        else parent_node = static_cast<Node*>(parent.internalPointer());
+
+        return parent_node->nsubnodes();
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual QVariant
+    data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    //---------------------------------------------------------------------------------------------
+    {
+        if (!index.isValid())
+            return QVariant();
+
+        auto node = static_cast<Node*>(index.internalPointer());
+
+        if (role == NodeName)
+            return node->name();
+        else if (role == NodeValue)
+            return node->value();
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual bool
+    setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override
+    //---------------------------------------------------------------------------------------------
+    {
+        if (!index.isValid())
+            return false;
+
+        auto node = static_cast<Node*>(index.internalPointer());
+
+        if (role == NodeName)
+            return false;
+        else if (role == NodeValue)
+            node->set_value(value);
+
+        return true;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual QModelIndex
+    index(int row, int column, const QModelIndex &parent = QModelIndex()) const override
+    //---------------------------------------------------------------------------------------------
+    {
+        Node* parent_node;
+
+        if (!parent.isValid())
+             parent_node = m_root_node;
+        else parent_node = static_cast<Node*>(parent.internalPointer());
+
+        auto child_node = parent_node->subnode(row);
+
+        if (child_node)
+             return createIndex(row, column, child_node);
+        else return QModelIndex();
+    }
+
+    //---------------------------------------------------------------------------------------------
+    virtual QModelIndex
+    parent(const QModelIndex &child) const override
+    //---------------------------------------------------------------------------------------------
+    {
+        if (!child.isValid())
+            return QModelIndex();
+
+        auto child_node = static_cast<Node*>(child.internalPointer());
+        auto parent_node = child_node->parent_node();
+
+        if (parent_node == m_root_node)
+            return QModelIndex();
+
+        return createIndex(parent_node->index(), 0, parent_node);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    Qt::ItemFlags
+    flags(QModelIndex const& index) const override
+    //---------------------------------------------------------------------------------------------
+    {
+        if (!index.isValid())
+             return 0;
+        else return QAbstractItemModel::flags(index);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QVariant
+    headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override
+    //---------------------------------------------------------------------------------------------
+    {
+        if (orientation == Qt::Horizontal && role == Qt::DisplayRole)
+//            return m_root_node->description();
+            return QVariant();
+
+        return QVariant();
     }
 };

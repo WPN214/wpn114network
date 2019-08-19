@@ -20,6 +20,15 @@ qml_plugin::registerTypes(const char *uri)
     qmlRegisterType<Node, 1>
     ("WPN114.Network", 1, 1, "Node");
 
+    qmlRegisterType<File, 1>
+    ("WPN114.Network", 1, 1, "File");
+
+    qmlRegisterType<Directory, 1>
+    ("WPN114.Network", 1, 1, "Directory");
+
+    qmlRegisterType<TreeModel, 1>
+    ("WPN114.Network", 1, 1, "TreeModel");
+
     qmlRegisterType<Client, 1>
     ("WPN114.Network", 1, 1, "Client");
 
