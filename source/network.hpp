@@ -258,17 +258,7 @@ Q_DECLARE_METATYPE(mg_connection*)
 Q_DECLARE_METATYPE(http_message*)
 Q_DECLARE_METATYPE(websocket_message*)
 
-#include <avahi-client/client.h>
-#include <avahi-client/publish.h>
-#include <avahi-common/alternative.h>
-#include <avahi-common/simple-watch.h>
-#include <avahi-common/malloc.h>
-#include <avahi-common/error.h>
-#include <avahi-common/timeval.h>
-
-using avahi_client = AvahiClient;
-using avahi_simple_poll = AvahiSimplePoll;
-using avahi_entry_group = AvahiEntryGroup;
+#include <dependencies/qzeroconf/qzeroconf.h>
 
 //-------------------------------------------------------------------------------------------------
 static QJsonObject
@@ -307,14 +297,8 @@ class Server : public QObject, public QQmlParserStatus
 
     Q_INTERFACES (QQmlParserStatus)
 
-    avahi_simple_poll*
-    m_avpoll = nullptr;
-
-    avahi_entry_group*
-    m_avgroup = nullptr;
-
-    avahi_client*
-    m_avclient;
+    QZeroConf
+    m_zeroconf;
 
     std::vector<Connection>
     m_connections;
@@ -328,8 +312,7 @@ class Server : public QObject, public QQmlParserStatus
     m_udp_port = 1234;
 
     pthread_t
-    m_mgthread,
-    m_avthread;
+    m_mgthread;
 
     bool
     m_running = false;
@@ -386,10 +369,8 @@ public:
 
         mg_set_protocol_http_websocket(tcp_connection);
 
-        m_avpoll    = avahi_simple_poll_new();
-        m_avclient  = avahi_client_new(avahi_simple_poll_get(m_avpoll),
-                      static_cast<AvahiClientFlags>(0), avahi_client_callback, this, nullptr);
-
+        m_zeroconf.startServicePublish(m_name.toStdString().c_str(),
+                                       "_oscjson._tcp", "local", m_tcp_port);
         m_running = true;
         poll();
     }
@@ -401,10 +382,6 @@ public:
     {
         m_running = false;
         pthread_join(m_mgthread, nullptr);
-        pthread_join(m_avthread, nullptr);
-
-        avahi_client_free(m_avclient);
-        avahi_simple_poll_free(m_avpoll);
 
         mg_mgr_free(&m_tcp);
         mg_mgr_free(&m_udp);
@@ -416,7 +393,6 @@ public:
     //-------------------------------------------------------------------------------------------------
     {
         pthread_create(&m_mgthread, nullptr, pthread_server_poll, this);
-        pthread_create(&m_avthread, nullptr, pthread_avahi_poll, this);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -432,91 +408,6 @@ public:
         }
 
         return nullptr;
-    }
-
-    //-------------------------------------------------------------------------------------------------
-    static void*
-    pthread_avahi_poll(void* udata)
-    //-------------------------------------------------------------------------------------------------
-    {
-        auto server = static_cast<Server*>(udata);
-        avahi_simple_poll_loop(server->m_avpoll);
-        return nullptr;
-    }
-
-    //-------------------------------------------------------------------------------------------------
-    static void
-    avahi_group_callback(avahi_entry_group* group, AvahiEntryGroupState state, void* udata)
-    //-------------------------------------------------------------------------------------------------
-    {
-        switch(state)
-        {
-        case AVAHI_ENTRY_GROUP_UNCOMMITED:
-        case AVAHI_ENTRY_GROUP_REGISTERING:
-        case AVAHI_ENTRY_GROUP_ESTABLISHED:
-            break;
-        case AVAHI_ENTRY_GROUP_COLLISION:
-            fprintf(stderr, "[avahi] entry group collision\n");
-            break;
-        case AVAHI_ENTRY_GROUP_FAILURE:
-            fprintf(stderr, "[avahi] entry group failure\n");
-            break;
-        }
-    }
-
-    //-------------------------------------------------------------------------------------------------
-    static void
-    avahi_client_callback(avahi_client* client, AvahiClientState state, void* udata)
-    //-------------------------------------------------------------------------------------------------
-    {
-        auto server = static_cast<Server*>(udata);
-
-        switch(state)
-        {
-        case AVAHI_CLIENT_CONNECTING:
-        case AVAHI_CLIENT_S_REGISTERING:
-            break;
-        case AVAHI_CLIENT_S_RUNNING:
-        {
-            fprintf(stderr, "[avahi] client running\n");
-            auto group = server->m_avgroup;
-
-            if(!group) {
-                fprintf(stderr, "[avahi] creating entry group\n");
-                group  = avahi_entry_group_new(client, avahi_group_callback, server);
-                server->m_avgroup = group;
-            }
-
-            if (avahi_entry_group_is_empty(group))
-            {
-                fprintf(stderr, "[avahi] adding service\n");
-
-                int err = avahi_entry_group_add_service(group,
-                    AVAHI_IF_UNSPEC, AVAHI_PROTO_INET, static_cast<AvahiPublishFlags>(0),
-                    server->m_name.toStdString().c_str(), "_oscjson._tcp", nullptr, nullptr, server->m_tcp_port, nullptr);
-
-                if (err) {
-                     fprintf(stderr, "Failed to add service: %s\n", avahi_strerror(err));
-                     return;
-                }
-
-                fprintf(stderr, "[avahi] commiting service\n");
-                err = avahi_entry_group_commit(group);
-
-                if (err) {
-                    fprintf(stderr, "Failed to commit group: %s\n", avahi_strerror(err));
-                    return;
-                }
-            }
-            break;
-        }
-        case AVAHI_CLIENT_FAILURE:
-            fprintf(stderr, "[avahi] client failure");
-            break;
-        case AVAHI_CLIENT_S_COLLISION:
-            fprintf(stderr, "[avahi] client collision");
-            break;
-        }
     }
 
     //-------------------------------------------------------------------------------------------------
