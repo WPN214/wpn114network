@@ -6,9 +6,9 @@
 #include <QQmlParserStatus>
 #include <QQmlProperty>
 #include <QVariant>
-
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QtDebug>
 
 class Tree;
 

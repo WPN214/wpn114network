@@ -1,8 +1,5 @@
 #pragma once
 
-#include <mongoose.h>
-#include <vector>
-#include <pthread.h>
 #include <QObject>
 #include <QQmlParserStatus>
 #include <QQmlPropertyValueSource>
@@ -18,6 +15,9 @@
 #include <QQmlEngine>
 
 #include <source/tree.hpp>
+#include <dependencies/mongoose/mongoose.h>
+#include <vector>
+#include <pthread.h>
 
 //-------------------------------------------------------------------------------------------------
 template<typename _Valuetype> void
@@ -260,7 +260,6 @@ Q_DECLARE_METATYPE(websocket_message*)
 
 #include <avahi-client/client.h>
 #include <avahi-client/publish.h>
-
 #include <avahi-common/alternative.h>
 #include <avahi-common/simple-watch.h>
 #include <avahi-common/malloc.h>
