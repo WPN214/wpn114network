@@ -21,7 +21,7 @@ add_subdirectory(dependencies)
 
 add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
 target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:QT_QML_DEBUG>)
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml mongoose)
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml mongoose qzeroconf)
 
 if(APPLE)
 elseif(UNIX AND NOT APPLE)

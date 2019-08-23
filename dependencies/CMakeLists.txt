@@ -1,12 +1,4 @@
-if(UNIX AND NOT APPLE)
-    set(QZEROCONF_HEADERS
-        qzeroconf/qzeroconf.h
-        qzeroconf/avahi-qt/qt-watch.h
-        qzeroconf/avahi-qt/qt-watch_p.h)
-    set(QZEROCONF_SOURCES
-        qzeroconf/avahiclient.cpp
-        qzeroconf/avahi-qt/qt-watch.cpp)
-elseif(APPLE)
+if(APPLE)
     set(QZEROCONF_HEADERS
         qzeroconf/qzeroconf.h
         qzeroconf/bonjour_p.h)
@@ -67,21 +59,29 @@ elseif(ANDROID)
         qzeroconf/avahi-core/timeeventq.c
         qzeroconf/avahi-core/util.c
         qzeroconf/avahi-core/wide-area.c)
+    elseif(UNIX AND NOT APPLE)
+        set(QZEROCONF_HEADERS
+            qzeroconf/qzeroconf.h
+            qzeroconf/avahi-qt/qt-watch.h
+            qzeroconf/avahi-qt/qt-watch_p.h)
+        set(QZEROCONF_SOURCES
+            qzeroconf/avahiclient.cpp
+            qzeroconf/avahi-qt/qt-watch.cpp)
 endif()
 
 set(QZEROCONF_HEADERS ${QZEROCONF_HEADERS} qzeroconf/qzeroconfservice.h qzeroconf/qzeroconfglobal.h)
 set(QZEROCONF_SOURCES ${QZEROCONF_SOURCES} qzeroconf/qzeroconfservice.cpp)
 
-add_library(qzeroconf SHARED ${QZEROCONF_SOURCES})
+add_library(qzeroconf SHARED ${QZEROCONF_HEADERS} ${QZEROCONF_SOURCES})
 target_link_libraries(qzeroconf Qt5::Core Qt5::Network)
 target_include_directories(qzeroconf PUBLIC qzeroconf)
 
-if(UNIX AND NOT APPLE)
-    target_link_libraries(qzeroconf -lavahi-client -lavahi-common)
-elseif(APPLE)
+if(APPLE)
     target_link_libraries(qzeroconf -framework CoreServices)
 elseif(ANDROID)
-    target_compile_definitions(qzeroconf -DHAVE_STRLCPY -DGETTEXT_PACKAGE -DHAVE_NETLINK)
+    target_compile_definitions(qzeroconf PRIVATE -DHAVE_STRLCPY -DGETTEXT_PACKAGE -DHAVE_NETLINK)
+elseif(UNIX AND NOT APPLE)
+    target_link_libraries(qzeroconf -lavahi-client -lavahi-common)
 endif()
 
 add_library(mongoose SHARED mongoose/mongoose.c)
