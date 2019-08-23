@@ -19,6 +19,8 @@
 #include <vector>
 #include <pthread.h>
 
+#define CSTR(_qstring) _qstring.toStdString().c_str()
+
 //-------------------------------------------------------------------------------------------------
 template<typename _Valuetype> void
 from_stream(QVariantList& arglst, QDataStream& stream);
@@ -675,13 +677,15 @@ public:
 };
 
 //=================================================================================================
-class Client : public QObject
+class Client : public QObject, public QQmlParserStatus
 //=================================================================================================
 {
     Q_OBJECT
 
-    Q_PROPERTY (QString host READ host WRITE set_host)
-    Q_PROPERTY (int port READ port WRITE set_port)
+    Q_PROPERTY   (QString host READ host WRITE set_host)
+    Q_PROPERTY   (int port READ port WRITE set_port)
+
+    Q_INTERFACES (QQmlParserStatus)
 
     Connection
     m_connection;
@@ -703,6 +707,9 @@ class Client : public QObject
 
     Tree
     m_tree;
+
+    QZeroConf
+    m_zeroconf;
 
 public:
 
@@ -750,16 +757,66 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
+    virtual void
+    classBegin() override {}
+
+    //-------------------------------------------------------------------------------------------------
+    virtual void
+    componentComplete() override
+    //-------------------------------------------------------------------------------------------------
+    {
+        if (m_host.startsWith("zc://")) {
+            QObject::connect(
+                &m_zeroconf, &QZeroConf::serviceAdded,
+                this, &Client::on_zeroconf_service_added);
+            m_zeroconf.startBrowser("_oscjson._tcp");
+        } else {
+            connect();
+        }
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    on_zeroconf_service_added(QZeroConfService service)
+    //-------------------------------------------------------------------------------------------------
+    {
+        auto host = m_host;
+        host.remove("zc://");
+
+        if (service->name() == host) {
+            m_host = service->ip().toString();
+            m_port = service->port();
+            connect();
+            m_zeroconf.stopBrowser();
+        }
+    }
+
+    //-------------------------------------------------------------------------------------------------
     Q_INVOKABLE void
     connect()
     //-------------------------------------------------------------------------------------------------
-    {
-        QString ws_addr("ws://");
-        ws_addr.append(m_host);
-        ws_addr.append(":");
-        ws_addr.append(QString::number(m_port));
+    {        
+        if (m_host.startsWith("ws://")) {
+            if (m_host.contains(":")) {
+                m_port = std::stoi(m_host.split("/").last().toStdString());
+                m_connection = mg_connect_ws(&m_mgr, event_handler, CSTR(m_host), nullptr, nullptr);
+            } else {
+                QString addr(m_host);
+                addr.append(":");
+                addr.append(QString::number(m_port));
+                m_connection = mg_connect_ws(&m_mgr, event_handler, CSTR(addr), nullptr, nullptr);
+            }
+        } else {
+            QString addr("ws://");
+            addr.append(m_host);
 
-        m_connection = mg_connect_ws(&m_mgr, event_handler, ws_addr.toStdString().c_str(), nullptr, nullptr);     
+            if (!addr.contains(":")) {
+                addr.append(":");
+                addr.append(QString::number(m_port));
+            }
+
+            m_connection = mg_connect_ws(&m_mgr, event_handler, CSTR(addr), nullptr, nullptr);
+        }
 
         m_running = true;
         pthread_create(&m_thread, nullptr, pthread_client_poll, this);

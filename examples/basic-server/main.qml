@@ -11,6 +11,11 @@ Window
 
     property real foo: 3.1415926
 
+    WPN114.Client
+    {
+        host: "zc://wpn114server"
+    }
+
     WPN114.Server //-------------------------------------------------------------------------------
     {
         id: server
