@@ -23,12 +23,14 @@ add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
 target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:QT_QML_DEBUG>)
 target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml mongoose qzeroconf)
 
-if(APPLE)
-elseif(UNIX AND NOT APPLE)
+if(${CMAKE_PREFIX_PATH} STREQUAL "/usr")
+    set(QT5_QML_INSTALL_PATH /usr/lib/qt/qml)
+else()
+    set(QT5_QML_INSTALL_PATH ${CMAKE_PREFIX_PATH}/qml)
 endif()
 
-install(TARGETS ${PROJECT_NAME} mongoose
-        DESTINATION /usr/lib/qt/qml/WPN114/Network)
+install(TARGETS ${PROJECT_NAME} mongoose qzeroconf
+        DESTINATION ${QT5_QML_INSTALL_PATH}/WPN114/Network)
 
 install(FILES qml/network.qmltypes qml/qmldir
-        DESTINATION /usr/lib/qt/qml/WPN114/Network)
+        DESTINATION ${QT5_QML_INSTALL_PATH}/WPN114/Network)
