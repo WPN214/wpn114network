@@ -9,25 +9,35 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt5 REQUIRED COMPONENTS Quick Core Qml Network)
 
-set(WPN114NETWORK_QML_SOURCES
+set(WPN114NETWORK_SOURCES
     qml_plugin.cpp
     source/network.hpp
     source/network.cpp
     source/tree.hpp
     source/tree.cpp)
 
-add_subdirectory(examples)
+if(UNIX AND NOT ANDROID AND NOT APPLE)
+    set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/dependencies)
+    find_package(Avahi REQUIRED COMPONENTS common client)
+endif()
+
 add_subdirectory(dependencies)
 
-add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_QML_SOURCES})
+add_library(${PROJECT_NAME} SHARED ${WPN114NETWORK_SOURCES})
 target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:QT_QML_DEBUG>)
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Quick Qt5::Qml mongoose qzeroconf)
+
+target_link_libraries(${PROJECT_NAME}
+    Qt5::Core Qt5::Quick Qt5::Qml
+    mongoose qzeroconf)
 
 if(${CMAKE_PREFIX_PATH} STREQUAL "/usr")
     set(QT5_QML_INSTALL_PATH /usr/lib/qt/qml)
 else()
     set(QT5_QML_INSTALL_PATH ${CMAKE_PREFIX_PATH}/qml)
 endif()
+
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+add_subdirectory(examples)
 
 install(TARGETS ${PROJECT_NAME} mongoose qzeroconf
         DESTINATION ${QT5_QML_INSTALL_PATH}/WPN114/Network)

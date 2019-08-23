@@ -13,3 +13,5 @@ add_executable(${PROJECT_NAME} "main.cpp" "qml.qrc")
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:QT_QML_DEBUG>)
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core Qt5::Quick)
+set_target_properties(basic-server PROPERTIES BUILD_RPATH ${QT5_QML_INSTALL_PATH}/WPN114/Network)
+set_target_properties(basic-server PROPERTIES INSTALL_RPATH ${QT5_QML_INSTALL_PATH}/WPN114/Network)
