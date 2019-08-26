@@ -17,6 +17,12 @@ Window
         tcp: 5678
         name: "wpn114server"
         singleton: true
+
+        onHttpRequestReceived:
+            console.log("[HTTP-REQUEST]", request);
+
+        onWebsocketMessageReceived:
+            console.log("[WEBSOCKET]", message);
     }
 
     WPN114.Node on foo //--------------------------------------------------------------------------
@@ -28,7 +34,7 @@ Window
 
         // server is registered as a singleton device,
         // therefore, specifying the target tree here is not necessary
-        tree: server.tree()
+//        tree: server.tree()
     }
 
     WPN114.Node //---------------------------------------------------------------------------------

@@ -24,7 +24,7 @@ public:
         None        = 43,
         Bool        = 1,
         Int         = 2,
-        Float       = 38,
+        Float       = 6,
         String      = 10,
         List        = 9,
         Vec2f       = 82,
@@ -73,7 +73,7 @@ protected:
     m_extended_type;
 
     Type::Values
-    m_type;
+    m_type = Type::None;
 
     QVariant
     m_value;
@@ -96,21 +96,20 @@ protected:
 public:
 
     //---------------------------------------------------------------------------------------------
-    Node()
-    //---------------------------------------------------------------------------------------------
-    {
-
-    }
+    Node() {}
 
     //---------------------------------------------------------------------------------------------
     Node(Node& parent, QString name, Type::Values type) :
       m_type            (type),
       m_name            (name),
       m_parent_node     (&parent),
-      m_tree            (parent.tree()),
-      m_path            (parent.path().append('/').append(name))
+      m_tree            (parent.tree())
     //---------------------------------------------------------------------------------------------
     {
+        if (parent.path() == "/")
+             m_path = parent.path().append(name);
+        else m_path = parent.path().append('/').append(name);
+
         // prevents qml from destroying nodes when referenced in javascript functions
         QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
     }
@@ -375,7 +374,8 @@ public:
     add_subnode(Node* subnode)
     //---------------------------------------------------------------------------------------------
     {
-        m_subnodes.push_back(subnode);
+        subnode->set_parent_node(this);
+        m_subnodes.push_back(subnode);        
     }
 
     //---------------------------------------------------------------------------------------------
@@ -848,6 +848,7 @@ public:
 
     //---------------------------------------------------------------------------------------------
     Tree()
+    //---------------------------------------------------------------------------------------------
     {
         m_root.set_path("/");
         m_root.set_tree(this);
@@ -887,6 +888,19 @@ public:
     link(Node* node)
     //---------------------------------------------------------------------------------------------
     {
+        // if node already exists, replace it
+        if (auto dup = find(node->path()))
+        {
+            auto parent = dup->parent_node();
+
+            for (auto subnode : dup->subnodes())
+                 node->add_subnode(subnode);
+
+            parent->remove_subnode(dup);
+            parent->add_subnode(node);
+            return;
+        }
+
         auto parent = find_or_create(parent_path(node->path()));
         parent->add_subnode(node);
     }
@@ -896,6 +910,9 @@ public:
     find(QString path)
     //---------------------------------------------------------------------------------------------
     {
+        if (path == "/" || path.isEmpty())
+            return &m_root;
+
         auto split = path.split('/');
         split.removeFirst();
 
@@ -916,6 +933,9 @@ public:
     find_or_create(QString path)
     //---------------------------------------------------------------------------------------------
     {
+        if (path == "/" || path.isEmpty())
+            return &m_root;
+
         auto split = path.split('/');
         split.removeFirst();
 
@@ -946,6 +966,9 @@ public:
     query(QString uri)
     //---------------------------------------------------------------------------------------------
     {
+        if (uri == "/")
+            return m_root.to_json();
+
         auto node = find(uri);
         if (!node)
              return QJsonObject();

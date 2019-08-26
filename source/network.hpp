@@ -533,6 +533,8 @@ public:
                 uint16_t port = obj["DATA"].toObject()["LOCAL_SERVER_PORT"].toInt();
                 sender->set_udp(port);
             }
+
+            emit websocketMessageReceived(frame);
         }
 
         else if (message->flags & WEBSOCKET_OP_BINARY) {
@@ -541,6 +543,8 @@ public:
 
             if (auto node = m_tree.find(oscmg.m_method))
                 node->set_value(oscmg.m_arguments);
+
+            emit oscMessageReceived(oscmg);
         }
     }
 
@@ -592,6 +596,8 @@ public:
             mg_send_head(connection, 200, ba.count(), "Content-Type: application/json; charset=utf-8");
             mg_send(connection, ba.data(), ba.count());
         }
+
+        emit httpRequestReceived(uri+query);
     }
 
     //-------------------------------------------------------------------------------------------------
