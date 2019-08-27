@@ -409,7 +409,7 @@ public:
         sprintf(s_udp, "%d", m_udp_port);
         strcat(udp_hdr, s_udp);
 
-        m_tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler),
+        m_tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler);
         m_udp_connection = mg_bind(&m_udp, udp_hdr, udp_event_handler);
         mg_set_protocol_http_websocket(m_tcp_connection);
 
@@ -634,7 +634,6 @@ public:
         if (query == "HOST_INFO") {
             QJsonDocument doc(info());
             auto ba = doc.toJson(QJsonDocument::Compact);
-
             mg_send_head(connection, 200, ba.count(), "Content-Type: application/json; charset=utf-8");
             mg_send(connection, ba.data(), ba.count());
         }
@@ -643,7 +642,6 @@ public:
             // query root
             QJsonDocument doc(m_tree.query(uri));
             auto ba = doc.toJson(QJsonDocument::Compact);
-
             mg_send_head(connection, 200, ba.count(), "Content-Type: application/json; charset=utf-8");
             mg_send(connection, ba.data(), ba.count());
         }

@@ -1,4 +1,4 @@
 module WPN114.Network
 typeinfo network.qmltypes
-plugin wpn114network-qml
+plugin wpn114network
 classname qml_plugin
