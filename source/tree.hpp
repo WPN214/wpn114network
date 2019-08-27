@@ -854,8 +854,11 @@ public:
     TreeModel() : QAbstractItemModel() {}
 
     //---------------------------------------------------------------------------------------------
-    TreeModel(Node& root) :
-        m_root_node(&root), QAbstractItemModel() {}
+    TreeModel(Node& root, QObject* parent = nullptr) :
+        m_root_node(&root), QAbstractItemModel()
+    {
+        setParent(parent);
+    }
 
     //---------------------------------------------------------------------------------------------
     enum Roles
@@ -1146,7 +1149,7 @@ public:
 
     //---------------------------------------------------------------------------------------------
     QJsonObject const
-    query(QString uri)
+    query(QString const& uri)
     //---------------------------------------------------------------------------------------------
     {
         if (uri == "/")
@@ -1163,6 +1166,16 @@ public:
     model()
     //---------------------------------------------------------------------------------------------
     {
-        return new TreeModel(m_root);
+        return new TreeModel(m_root, this);
+    }
+
+    //---------------------------------------------------------------------------------------------
+    QVariant
+    value(QString const& uri)
+    //---------------------------------------------------------------------------------------------
+    {
+        if  (auto node = find(uri))
+             return node->value();
+        else return QVariant();
     }
 };

@@ -17,7 +17,7 @@
 #include <source/tree.hpp>
 #include <dependencies/mongoose/mongoose.h>
 #include <vector>
-#include <pthread.h>
+#include <thread>
 
 #define CSTR(_qstring) _qstring.toStdString().c_str()
 
@@ -163,10 +163,14 @@ public:
     //---------------------------------------------------------------------------------------------
     Connection(mg_connection* ws_connection) :
         m_ws_connection(ws_connection)
+    //---------------------------------------------------------------------------------------------
     {
-        char addr[32];
+        char addr[32], port[5];
         mg_sock_addr_to_str(&ws_connection->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_IP);
+        mg_sock_addr_to_str(&ws_connection->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_PORT);
         m_host_ip = addr;
+        m_host_ip.append(":");
+        m_host_ip.append(port);
     }
 
     //---------------------------------------------------------------------------------------------
@@ -210,6 +214,10 @@ public:
 
         mg_mgr_init(&m_mgr, this);
     }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE
+    QString address() const { return m_host_ip; }
 
     //-------------------------------------------------------------------------------------------------
     Q_SLOT void
@@ -256,11 +264,52 @@ public:
     }
 };
 
+Q_DECLARE_METATYPE(Connection)
 Q_DECLARE_METATYPE(mg_connection*)
 Q_DECLARE_METATYPE(http_message*)
 Q_DECLARE_METATYPE(websocket_message*)
 
 #include <dependencies/qzeroconf/qzeroconf.h>
+
+//=================================================================================================
+class NetworkDevice : public QObject, public QQmlParserStatus
+//=================================================================================================
+{
+    Q_OBJECT
+
+protected:
+
+    Tree
+    m_tree;
+
+    QZeroConf
+    m_zeroconf;
+
+public:
+
+    //---------------------------------------------------------------------------------------------
+    void
+    classBegin() override {}
+
+    //---------------------------------------------------------------------------------------------
+    void
+    componentComplete() override {}
+
+    //---------------------------------------------------------------------------------------------
+    Q_INVOKABLE Node*
+    get(QString path) { return m_tree.find(path); }
+
+    //---------------------------------------------------------------------------------------------
+    Q_INVOKABLE QVariant
+    value(QString path)
+    //---------------------------------------------------------------------------------------------
+    {
+        if  (auto node = m_tree.find(path))
+             return node->value();
+        else return QVariant();
+    }
+
+};
 
 //-------------------------------------------------------------------------------------------------
 static QJsonObject
@@ -287,7 +336,7 @@ ServerExtensions =
 };
 
 //=================================================================================================
-class Server : public QObject, public QQmlParserStatus
+class Server : public NetworkDevice
 //=================================================================================================
 {
     Q_OBJECT
@@ -299,11 +348,12 @@ class Server : public QObject, public QQmlParserStatus
 
     Q_INTERFACES (QQmlParserStatus)
 
-    QZeroConf
-    m_zeroconf;
-
     std::vector<Connection>
     m_connections;
+
+    mg_connection
+    *m_tcp_connection = nullptr,
+    *m_udp_connection = nullptr;
 
     mg_mgr
     m_tcp,
@@ -313,7 +363,7 @@ class Server : public QObject, public QQmlParserStatus
     m_tcp_port = 5678,
     m_udp_port = 1234;
 
-    pthread_t
+    std::thread
     m_mgthread;
 
     bool
@@ -322,17 +372,14 @@ class Server : public QObject, public QQmlParserStatus
     QString
     m_name = "wpn114";
 
-    Tree
-    m_tree;
-
 public:
 
     //-------------------------------------------------------------------------------------------------
     Q_SIGNAL void
-    connection(QString address);
+    connection(Connection connection);
 
     Q_SIGNAL void
-    disconnection(QString address);
+    disconnection(Connection connection);
 
     Q_SIGNAL void
     oscMessageReceived(OSCMessage message);
@@ -353,10 +400,6 @@ public:
 
     //-------------------------------------------------------------------------------------------------
     void
-    classBegin() override {}
-
-    //-------------------------------------------------------------------------------------------------
-    void
     componentComplete() override
     //-------------------------------------------------------------------------------------------------
     {
@@ -366,15 +409,23 @@ public:
         sprintf(s_udp, "%d", m_udp_port);
         strcat(udp_hdr, s_udp);
 
-        mg_connection* tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler);
-        mg_connection* udp_connection = mg_bind(&m_udp, udp_hdr, udp_event_handler);
+        m_tcp_connection = mg_bind(&m_tcp, s_tcp, ws_event_handler),
+        m_udp_connection = mg_bind(&m_udp, udp_hdr, udp_event_handler);
+        mg_set_protocol_http_websocket(m_tcp_connection);
 
-        mg_set_protocol_http_websocket(tcp_connection);
-
-        m_zeroconf.startServicePublish(m_name.toStdString().c_str(),
-                                       "_oscjson._tcp", "local", m_tcp_port);
+        m_zeroconf.startServicePublish(CSTR(m_name), "_oscjson._tcp", "local", m_tcp_port);
         m_running = true;
+
         poll();
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    stop()
+    //-------------------------------------------------------------------------------------------------
+    {
+        m_running = false;
+        m_mgthread.join();
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -382,9 +433,7 @@ public:
     ~Server() override
     //-------------------------------------------------------------------------------------------------
     {
-        m_running = false;
-        pthread_join(m_mgthread, nullptr);
-
+        stop();
         mg_mgr_free(&m_tcp);
         mg_mgr_free(&m_udp);
     }
@@ -394,22 +443,18 @@ public:
     poll()
     //-------------------------------------------------------------------------------------------------
     {
-        pthread_create(&m_mgthread, nullptr, pthread_server_poll, this);
+        m_mgthread = std::thread(&Server::server_poll, this);
     }
 
     //-------------------------------------------------------------------------------------------------
-    static void*
-    pthread_server_poll(void* udata)
+    void
+    server_poll()
     //-------------------------------------------------------------------------------------------------
     {
-        auto server = static_cast<Server*>(udata);
-
-        while (server->m_running) {
-            mg_mgr_poll(&server->m_tcp, 200);
-            mg_mgr_poll(&server->m_udp, 200);
+        while (m_running) {
+            mg_mgr_poll(&m_tcp, 200);
+            mg_mgr_poll(&m_udp, 200);
         }
-
-        return nullptr;
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -518,6 +563,8 @@ public:
                 if (connection.mgc() == mgc)
                     sender = &connection;
 
+            assert(sender);
+
             if (command == "LISTEN" || command == "IGNORE")
             {
                 auto target = obj["DATA"].toString();
@@ -531,7 +578,11 @@ public:
 
             else if (command == "START_OSC_STREAMING") {
                 uint16_t port = obj["DATA"].toObject()["LOCAL_SERVER_PORT"].toInt();
-                sender->set_udp(port);
+                sender->set_udp(port);                
+
+                // at this point it is safe to validate the oscquery connection
+                // and send it back to qml
+                emit connection(*sender);
             }
 
             emit websocketMessageReceived(frame);
@@ -683,7 +734,7 @@ public:
 };
 
 //=================================================================================================
-class Client : public QObject, public QQmlParserStatus
+class Client : public NetworkDevice
 //=================================================================================================
 {
     Q_OBJECT
@@ -696,7 +747,7 @@ class Client : public QObject, public QQmlParserStatus
     Connection
     m_connection;
 
-    pthread_t
+    std::thread
     m_thread;
 
     mg_mgr
@@ -711,14 +762,9 @@ class Client : public QObject, public QQmlParserStatus
     bool
     m_running = false;
 
-    Tree
-    m_tree;
-
-    QZeroConf
-    m_zeroconf;
-
 public:
 
+    //-------------------------------------------------------------------------------------------------
     Q_SIGNAL void
     connected();
 
@@ -731,15 +777,24 @@ public:
     {
         mg_mgr_init(&m_mgr, this);
         mg_bind(&m_mgr, "udp://1234", event_handler);
-    }
+    }        
 
     //-------------------------------------------------------------------------------------------------
     virtual
     ~Client() override
     //-------------------------------------------------------------------------------------------------
     {
-        pthread_join(m_thread, nullptr);
+        stop();
         mg_mgr_free(&m_mgr);
+    }
+
+    //-------------------------------------------------------------------------------------------------
+    void
+    stop()
+    //-------------------------------------------------------------------------------------------------
+    {
+        m_running = false;
+        m_thread.join();
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -752,19 +807,18 @@ public:
     //-------------------------------------------------------------------------------------------------
     void
     set_host(QString host)
+    //-------------------------------------------------------------------------------------------------
     {
         m_host = host;
     }
 
+    //-------------------------------------------------------------------------------------------------
     void
     set_port(uint16_t port)
+    //-------------------------------------------------------------------------------------------------
     {
         m_port = port;
     }
-
-    //-------------------------------------------------------------------------------------------------
-    virtual void
-    classBegin() override {}
 
     //-------------------------------------------------------------------------------------------------
     virtual void
@@ -825,7 +879,7 @@ public:
         }
 
         m_running = true;
-        pthread_create(&m_thread, nullptr, pthread_client_poll, this);
+        m_thread = std::thread(&Client::poll, this);
     }
 
     //-------------------------------------------------------------------------------------------------
@@ -873,15 +927,12 @@ public:
     }
 
     //-------------------------------------------------------------------------------------------------
-    static void*
-    pthread_client_poll(void* udata)
+    void
+    poll()
     //-------------------------------------------------------------------------------------------------
     {
-        auto client = static_cast<Client*>(udata);
-        while (client->m_running)
-            mg_mgr_poll(&client->m_mgr, 200);
-
-        return nullptr;
+        while (m_running)
+               mg_mgr_poll(&m_mgr, 200);
     }
 
     //-------------------------------------------------------------------------------------------------
