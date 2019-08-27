@@ -88,7 +88,8 @@ protected:
     m_subnodes;
 
     bool
-    m_critical = false;
+    m_critical = false,
+    m_zombie = false;
 
     QQmlProperty
     m_target;
@@ -129,8 +130,9 @@ public:
     ~Node() override
     //---------------------------------------------------------------------------------------------
     {
-        for (auto& subnode : m_subnodes)
-             delete subnode;
+        if (!m_zombie)
+            for (auto& subnode : m_subnodes)
+                 delete subnode;
     }
 
     //---------------------------------------------------------------------------------------------
@@ -190,6 +192,17 @@ public:
 
     int
     nsubnodes() const { return m_subnodes.count(); }
+
+    bool
+    zombie() const { return m_zombie; }
+
+    //---------------------------------------------------------------------------------------------
+    void
+    set_zombie(bool zombie)
+    //---------------------------------------------------------------------------------------------
+    {
+        m_zombie = zombie;
+    }
 
     //---------------------------------------------------------------------------------------------
     int
@@ -384,6 +397,7 @@ public:
     //---------------------------------------------------------------------------------------------
     {
         m_subnodes.removeOne(subnode);
+        subnode->set_zombie(true);
     }
 
     //---------------------------------------------------------------------------------------------
@@ -898,6 +912,7 @@ public:
 
             parent->remove_subnode(dup);
             parent->add_subnode(node);
+            delete dup;
             return;
         }
 
