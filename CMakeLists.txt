@@ -23,6 +23,7 @@ set(WPN114_NETWORK_SOURCE_DIR source)
 set(WPN114_NETWORK_QML_DIR qml)
 
 set(WPN114_NETWORK_SOURCES
+    qml_plugin.cpp
     ${WPN114_NETWORK_SOURCE_DIR}/network.hpp
     ${WPN114_NETWORK_SOURCE_DIR}/network.cpp
     ${WPN114_NETWORK_SOURCE_DIR}/tree.hpp

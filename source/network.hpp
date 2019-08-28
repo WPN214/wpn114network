@@ -277,6 +277,10 @@ class NetworkDevice : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
 
+    Q_PROPERTY      (QQmlListProperty<Node> subnodes READ subnodes)
+    Q_INTERFACES    (QQmlParserStatus)
+    Q_CLASSINFO     ("DefaultProperty", "subnodes")
+
 protected:
 
     Tree
@@ -299,6 +303,9 @@ public:
     Q_INVOKABLE Node*
     get(QString path) { return m_tree.find(path); }
 
+    Q_INVOKABLE Tree*
+    tree() { return &m_tree; }
+
     //---------------------------------------------------------------------------------------------
     Q_INVOKABLE QVariant
     value(QString path)
@@ -307,6 +314,71 @@ public:
         if  (auto node = m_tree.find(path))
              return node->value();
         else return QVariant();
+    }
+
+    // --------------------------------------------------------------------------------------------
+    QQmlListProperty<Node>
+    subnodes()
+    // returns subnodes (QML format)
+    // --------------------------------------------------------------------------------------------
+    {
+        return QQmlListProperty<Node>(
+               this, this,
+               &NetworkDevice::append_subnode,
+               &NetworkDevice::nsubnodes,
+               &NetworkDevice::subnode,
+               &NetworkDevice::clear_subnodes);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    append_subnode(Node* node) { m_tree.link(node); }
+    // appends a subnode to this Node children
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE int
+    nsubnodes() { return m_tree.root()->nsubnodes(); }
+    // returns this Node' subnodes count
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE Node*
+    subnode(int index) { return m_tree.root()->subnode(index); }
+    // returns this Node' subnode at index
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    clear_subnodes() {  }
+
+    // --------------------------------------------------------------------------------------------
+    static void
+    append_subnode(QQmlListProperty<Node>* list, Node* node)
+    // static Qml version, see above
+    {
+        reinterpret_cast<NetworkDevice*>(list->data)->append_subnode(node);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    static int
+    nsubnodes(QQmlListProperty<Node>* list)
+    // static Qml version, see above
+    {
+        return reinterpret_cast<NetworkDevice*>(list)->nsubnodes();
+    }
+
+    // --------------------------------------------------------------------------------------------
+    static Node*
+    subnode(QQmlListProperty<Node>* list, int index)
+    // static Qml version, see above
+    {
+        return reinterpret_cast<NetworkDevice*>(list)->subnode(index);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    static void
+    clear_subnodes(QQmlListProperty<Node>* list)
+    // static Qml version, see above
+    {
+        reinterpret_cast<NetworkDevice*>(list)->clear_subnodes();
     }
 
 };
@@ -345,8 +417,6 @@ class Server : public NetworkDevice
     Q_PROPERTY (int udp READ udp WRITE set_udp)
     Q_PROPERTY (QString name READ name WRITE set_name) // zeroconf
     Q_PROPERTY (bool singleton READ singleton WRITE set_singleton)
-
-    Q_INTERFACES (QQmlParserStatus)
 
     std::vector<Connection>
     m_connections;
@@ -689,10 +759,6 @@ public:
     //-------------------------------------------------------------------------------------------------
     bool
     singleton() const { return m_tree.singleton(); }
-
-    //-------------------------------------------------------------------------------------------------
-    Q_INVOKABLE Tree*
-    tree() { return &m_tree; }
 
     //-------------------------------------------------------------------------------------------------
     QString

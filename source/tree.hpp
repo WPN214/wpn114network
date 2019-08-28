@@ -5,6 +5,7 @@
 #include <QQmlPropertyValueSource>
 #include <QQmlParserStatus>
 #include <QQmlProperty>
+#include <QQmlListProperty>
 #include <QVariant>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -62,8 +63,14 @@ class Node : public QObject, public QQmlParserStatus, public QQmlPropertyValueSo
     //---------------------------------------------------------------------------------------------
     Q_PROPERTY (bool critical READ critical WRITE set_critical NOTIFY criticalChanged)
 
-    //-------------------------------------------------------------------------------------------------
+    //---------------------------------------------------------------------------------------------
     Q_PROPERTY (Tree* tree READ tree WRITE set_tree)
+
+    //---------------------------------------------------------------------------------------------
+    Q_PROPERTY (QQmlListProperty<Node> subnodes READ subnodes_list)
+
+    //---------------------------------------------------------------------------------------------
+    Q_CLASSINFO ("DefaultProperty", "subnodes")
 
 protected:
 
@@ -479,6 +486,71 @@ public:
 
         if (object.contains("VALUE"))
             set_value(object["VALUE"].toVariant());
+    }
+
+    // --------------------------------------------------------------------------------------------
+    QQmlListProperty<Node>
+    subnodes_list()
+    // returns subnodes (QML format)
+    // --------------------------------------------------------------------------------------------
+    {
+        return QQmlListProperty<Node>(
+               this, this,
+               &Node::append_subnode,
+               &Node::nsubnodes,
+               &Node::subnode,
+               &Node::clear_subnodes);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    append_subnode(Node* node);
+    // appends a subnode to this Node children
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE int
+    nsubnodes() { return m_subnodes.count(); }
+    // returns this Node' subnodes count
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE Node*
+    subnode(int index) { return m_subnodes.at(index); }
+    // returns this Node' subnode at index
+
+    // --------------------------------------------------------------------------------------------
+    Q_INVOKABLE void
+    clear_subnodes() {}
+
+    // --------------------------------------------------------------------------------------------
+    static void
+    append_subnode(QQmlListProperty<Node>* list, Node* node)
+    // static Qml version, see above
+    {
+        reinterpret_cast<Node*>(list->data)->append_subnode(node);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    static int
+    nsubnodes(QQmlListProperty<Node>* list)
+    // static Qml version, see above
+    {
+        return reinterpret_cast<Node*>(list)->nsubnodes();
+    }
+
+    // --------------------------------------------------------------------------------------------
+    static Node*
+    subnode(QQmlListProperty<Node>* list, int index)
+    // static Qml version, see above
+    {
+        return reinterpret_cast<Node*>(list)->subnode(index);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    static void
+    clear_subnodes(QQmlListProperty<Node>* list)
+    // static Qml version, see above
+    {
+        reinterpret_cast<Node*>(list)->clear_subnodes();
     }
 };
 
