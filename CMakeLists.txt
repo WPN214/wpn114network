@@ -26,6 +26,18 @@ set(WPN114_NETWORK_SOURCES
     qml_plugin.cpp
     ${WPN114_NETWORK_SOURCE_DIR}/network.hpp
     ${WPN114_NETWORK_SOURCE_DIR}/network.cpp
+    ${WPN114_NETWORK_SOURCE_DIR}/osc.hpp
+    ${WPN114_NETWORK_SOURCE_DIR}/osc.cpp
+    ${WPN114_NETWORK_SOURCE_DIR}/server.hpp
+    ${WPN114_NETWORK_SOURCE_DIR}/server.cpp
+    ${WPN114_NETWORK_SOURCE_DIR}/client.hpp
+    ${WPN114_NETWORK_SOURCE_DIR}/client.cpp
+    ${WPN114_NETWORK_SOURCE_DIR}/node.hpp
+    ${WPN114_NETWORK_SOURCE_DIR}/node.cpp
+    ${WPN114_NETWORK_SOURCE_DIR}/file.hpp
+    ${WPN114_NETWORK_SOURCE_DIR}/file.cpp
+    ${WPN114_NETWORK_SOURCE_DIR}/directory.hpp
+    ${WPN114_NETWORK_SOURCE_DIR}/directory.cpp
     ${WPN114_NETWORK_SOURCE_DIR}/tree.hpp
     ${WPN114_NETWORK_SOURCE_DIR}/tree.cpp
     ${WPN114_NETWORK_QML_DIR}/qmldir

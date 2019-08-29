@@ -1,66 +1,74 @@
 #include "network.hpp"
+#include "osc.hpp"
 
-Tree* Tree::s_singleton;
+#include <QJsonDocument>
 
-//---------------------------------------------------------------------------------------------
-template<typename _Valuetype> void
-from_stream(QVariantList& arglst, QDataStream& stream)
-//---------------------------------------------------------------------------------------------
+using namespace WPN114::Network;
+
+WPN114::Network::Connection::
+Connection(mg_connection* ws_connection) :
+    m_ws_connection(ws_connection)
 {
-    _Valuetype target_value;
-    stream >> target_value;
-    arglst << target_value;
+    char addr[32], port[5];
+    mg_sock_addr_to_str(&ws_connection->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_IP);
+    mg_sock_addr_to_str(&ws_connection->sa, addr, sizeof(addr), MG_SOCK_STRINGIFY_PORT);
+
+    m_host_ip = addr;
+    m_host_ip.append(":");
+    m_host_ip.append(port);
 }
 
-//---------------------------------------------------------------------------------------------
-template<> void
-from_stream<QString>(QVariantList& arglist, QDataStream& stream)
-//---------------------------------------------------------------------------------------------
+void
+WPN114::Network::Connection::
+set_udp(uint16_t udp)
 {
-    uint8_t byte;
-    QByteArray data;
+    m_udp_port = udp;
+    m_host_udp = m_host_ip;
+    m_host_udp.prepend("udp://");
+    m_host_udp.append(":");
+    m_host_udp.append(QString::number(m_udp_port));
 
-    stream >> byte;
-    while (byte) { data.append(byte); stream >> byte; }
-
-    uint8_t padding = 4-(data.count()%4);
-    stream.skipRawData(padding-1);
-    arglist << QString::fromUtf8(data);
+    mg_mgr_init(&m_mgr, this);
 }
 
-//---------------------------------------------------------------------------------------------
-OSCMessage::OSCMessage(QByteArray const& data)
-//---------------------------------------------------------------------------------------------
+void WPN114::Network::Connection::
+on_value_changed(QVariant value)
 {
-    QDataStream stream(data);
-    QString typetag;
-    QVariantList arguments;
+    auto node = qobject_cast<Node*>(QObject::sender());
+    writeOSC(node->path(), value.toList(), node->critical());
+}
 
-    stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
-    stream.setByteOrder(QDataStream::BigEndian);
+void
+WPN114::Network::Connection::
+writeOSC(QString method, QVariantList arguments, bool critical)
+{
+    OSCMessage msg(method, arguments);
+    auto b_arr = msg.encode();
 
-    auto comsep = data.split(',');
-    m_method = comsep[0];
-    typetag = comsep[1].split('\0')[0];
-
-    uint8_t adpads = 4-(m_method.count()%4);
-    uint8_t ttpads = 4-((typetag.count()+1)%4);
-    uint32_t total = m_method.count()+adpads+typetag.count()+1+ttpads;
-
-    stream.skipRawData(total);
-
-    for (const auto& c : typetag) {
-        switch(c.toLatin1()) {
-            case 'i': from_stream<int>(arguments, stream); break;
-            case 'f': from_stream<float>(arguments, stream); break;
-            case 's': from_stream<QString>(arguments, stream); break;
-            case 'T': arguments << true; break;
-            case 'F': arguments << false; break;
-        }}
-
-    switch(arguments.count()) {
-        case 0: break;
-        case 1: m_arguments = arguments[0]; break;
-        default: m_arguments = arguments;
+    if (critical) {
+         mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_BINARY,
+                                 b_arr.data(), b_arr.count());
+    } else {
+        m_udp_connection = mg_connect(&m_mgr, CSTR(m_host_udp), nullptr);
+        mg_send(m_udp_connection, b_arr.data(), b_arr.count());
     }
+}
+
+void
+WPN114::Network::Connection::
+writeText(QString text)
+{
+    auto utf8 = text.toUtf8();
+    mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_TEXT,
+                            utf8.data(), utf8.count());
+
+}
+
+void
+WPN114::Network::Connection::
+writeJson(QJsonObject object)
+{
+    auto doc = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    mg_send_websocket_frame(m_ws_connection, WEBSOCKET_OP_TEXT,
+                            doc.data(), doc.count());
 }
