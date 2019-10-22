@@ -265,7 +265,8 @@ operator QJsonObject() const
 {
     QJsonObject contents;
     for (auto& subnode : m_subnodes)
-        contents.insert(subnode->name(), static_cast<QJsonObject>(*subnode));
+         contents.insert(subnode->name(),
+                         static_cast<QJsonObject>(*subnode));
 
     auto attr = attributes();
     attr[wpn_json_contents] = contents;
@@ -278,7 +279,7 @@ update(QJsonObject object)
 // update Node's attribute values and contents recursively from JSON object
 {
     if (object.contains(wpn_json_fullpath))
-        m_path = object[wpn_json_fullpath].toString();
+        set_path(object[wpn_json_fullpath].toString());
 
     if (object.contains(wpn_json_type))
         set_type(object[wpn_json_type].toString());

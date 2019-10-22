@@ -1,22 +1,17 @@
 #include "osc.hpp"
 
-
 using namespace WPN114::Network;
 
-//---------------------------------------------------------------------------------------------
 template<typename _Valuetype> void
 deserialize(QVariantList& arglst, QDataStream& stream)
-//---------------------------------------------------------------------------------------------
 {
     _Valuetype target_value;
     stream >> target_value;
     arglst << target_value;
 }
 
-//---------------------------------------------------------------------------------------------
 template<> void
 deserialize<QString>(QVariantList& arglist, QDataStream& stream)
-//---------------------------------------------------------------------------------------------
 {
     uint8_t byte;
     QByteArray data;
@@ -29,10 +24,8 @@ deserialize<QString>(QVariantList& arglist, QDataStream& stream)
     arglist << QString::fromUtf8(data);
 }
 
-//---------------------------------------------------------------------------------------------
 WPN114::Network::OSCMessage::
 OSCMessage(QByteArray const& data)
-//---------------------------------------------------------------------------------------------
 {
     QDataStream stream(data);
     QVariantList arguments;

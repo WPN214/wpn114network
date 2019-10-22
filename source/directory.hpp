@@ -123,7 +123,8 @@ public:
     //---------------------------------------------------------------------------------------------
     {
         // update downloads whenever node value is changed
-        QObject::connect(this, &Node::valueChanged, this, &MirrorDirectory::on_file_list_changed);
+        QObject::connect(this, &Node::valueChanged,
+                         this, &MirrorDirectory::on_file_list_changed);
     }
 
     Q_SIGNAL void

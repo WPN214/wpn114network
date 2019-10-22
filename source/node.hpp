@@ -8,8 +8,6 @@
 #include <QQmlEngine>
 #include <QJsonObject>
 #include <QJsonArray>
-
-
 #include <QDir>
 
 namespace WPN114   {
@@ -220,7 +218,6 @@ public:
     set_type(QMetaType::Type type);
 
     //---------------------------------------------------------------------------------------------
-
     QVector<Node*>&
     subnodes() { return m_subnodes; }
 
@@ -240,22 +237,20 @@ public:
     subnode(size_t index);
 
     //---------------------------------------------------------------------------------------------
-
     QJsonObject
     attributes() const;
 
     operator
     QJsonObject() const;
 
-    //---------------------------------------------------------------------------------------------
     void
     update(QJsonObject object);
 
     // --------------------------------------------------------------------------------------------
+
     QQmlListProperty<Node>
     subnodes_list()
     // returns subnodes (QML format)
-    // --------------------------------------------------------------------------------------------
     {
         return QQmlListProperty<Node>(
                this, this,
@@ -265,22 +260,18 @@ public:
                &Node::clear_subnodes);
     }
 
-    // --------------------------------------------------------------------------------------------
     Q_INVOKABLE void
     append_subnode(Node* node);
     // appends a subnode to this Node children
 
-    // --------------------------------------------------------------------------------------------
     Q_INVOKABLE int
     nsubnodes() { return m_subnodes.count(); }
     // returns this Node' subnodes count
 
-    // --------------------------------------------------------------------------------------------
     Q_INVOKABLE Node*
     subnode(int index) { return m_subnodes.at(index); }
     // returns this Node' subnode at index
 
-    // --------------------------------------------------------------------------------------------
     Q_INVOKABLE void
     clear_subnodes() {}
 
